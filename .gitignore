@@ -1,0 +1,9 @@
+.claude/
+__pycache__/
+data/raw/
+.DS_Store
+cache/
+data/perfumes_clean.csv
+data/smells_like.csv
+data/also_liked.csv
+docs/handoff.md

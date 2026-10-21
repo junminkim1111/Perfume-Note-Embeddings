@@ -1,0 +1,97 @@
+{'train': 31235, 'val': 6772, 'test': 6794} tune 10000
+
+[1] grid, default W
+  α_min 0    γ 0   train R@10 0.0818
+  α_min 0    γ 0.5 train R@10 0.0837
+  α_min 0    γ 1   train R@10 0.0822
+  α_min 0.25 γ 0   train R@10 0.1117
+  α_min 0.25 γ 0.5 train R@10 0.1109
+  α_min 0.25 γ 1   train R@10 0.1066
+  α_min 0.5  γ 0   train R@10 0.1163
+  α_min 0.5  γ 0.5 train R@10 0.1138
+  α_min 0.5  γ 1   train R@10 0.1090
+  α_min 0.75 γ 0   train R@10 0.1139
+  α_min 0.75 γ 0.5 train R@10 0.1115
+  α_min 0.75 γ 1   train R@10 0.1068
+  α_min 1    γ 0   train R@10 0.1154
+  α_min 1    γ 0.5 train R@10 0.1135
+  α_min 1    γ 1   train R@10 0.1090
+  best α_min 0.5, γ 0
+
+[2] Nelder-Mead on W
+  eval 10: tune R@10 0.1214
+  eval 20: tune R@10 0.1237
+  eval 30: tune R@10 0.1260
+  eval 40: tune R@10 0.1274
+  eval 50: tune R@10 0.1273
+  eval 60: tune R@10 0.1270
+  eval 70: tune R@10 0.1271
+  eval 80: tune R@10 0.1275
+  eval 90: tune R@10 0.1274
+  eval 100: tune R@10 0.1273
+  eval 110: tune R@10 0.1273
+  eval 120: tune R@10 0.1276
+  eval 130: tune R@10 0.1274
+  eval 140: tune R@10 0.1273
+  eval 150: tune R@10 0.1274
+  eval 160: tune R@10 0.1273
+  eval 170: tune R@10 0.1274
+  eval 180: tune R@10 0.1275
+  W [[0.2868, 0.0291, 0.0225], [0.0291, 0.2766, 0.0414], [0.0225, 0.0414, 0.2505]]  (187 evals)
+
+[3] grid, tuned W
+  α_min 0    γ 0   train R@10 0.0942
+  α_min 0    γ 0.5 train R@10 0.0961
+  α_min 0    γ 1   train R@10 0.0941
+  α_min 0.25 γ 0   train R@10 0.1215
+  α_min 0.25 γ 0.5 train R@10 0.1212
+  α_min 0.25 γ 1   train R@10 0.1177
+  α_min 0.5  γ 0   train R@10 0.1246
+  α_min 0.5  γ 0.5 train R@10 0.1244
+  α_min 0.5  γ 1   train R@10 0.1197
+  α_min 0.75 γ 0   train R@10 0.1225
+  α_min 0.75 γ 0.5 train R@10 0.1215
+  α_min 0.75 γ 1   train R@10 0.1174
+  α_min 1    γ 0   train R@10 0.1233
+  α_min 1    γ 0.5 train R@10 0.1223
+  α_min 1    γ 1   train R@10 0.1179
+  best α_min 0.5, γ 0
+
+[4] validation
+  default      {'alpha_min': 0.5, 'gamma': 1, 'W': [[0.1818, 0.0568, 0.0227], [0.0568, 0.2273, 0.0795], [0.0227, 0.0795, 0.2727]], 'train R@10': 0.10898284853111591, 'val R@10': 0.11057801374383928}
+  grid         {'alpha_min': 0.5, 'gamma': 0, 'W': [[0.1818, 0.0568, 0.0227], [0.0568, 0.2273, 0.0795], [0.0227, 0.0795, 0.2727]], 'train R@10': 0.11633428837582807, 'val R@10': 0.11536917265483511}
+  grid + W     {'alpha_min': 0.5, 'gamma': 0, 'W': [[0.2868, 0.0291, 0.0225], [0.0291, 0.2766, 0.0414], [0.0225, 0.0414, 0.2505]], 'train R@10': 0.12463236083353307, 'val R@10': 0.1281631850441523}
+  W + regrid   {'alpha_min': 0.5, 'gamma': 0, 'W': [[0.2868, 0.0291, 0.0225], [0.0291, 0.2766, 0.0414], [0.0225, 0.0414, 0.2505]], 'train R@10': 0.12463236083353307, 'val R@10': 0.1281631850441523}
+  chosen: grid + W
+
+[5] test (once)
+
+== random ==  brand 0.002  gender 0.375  jaccard 0.055  self@1 nan
+           R@5   R@10   R@20  nDCG@10    MRR     n
+all     0.0000 0.0001 0.0001   0.0000 0.0002  6794
+flat    0.0000 0.0000 0.0000   0.0000 0.0000  1382
+pyramid 0.0000 0.0001 0.0001   0.0000 0.0003  5412
+
+== IDF only (MiniLM name, α_min=1, γ=1, default W) ==  brand 0.037  gender 0.558  jaccard 0.336  self@1 0.999
+           R@5   R@10   R@20  nDCG@10    MRR     n
+all     0.0967 0.1100 0.1224   0.1106 0.1525  6794
+flat    0.0557 0.0650 0.0713   0.0656 0.0911  1382
+pyramid 0.1072 0.1216 0.1354   0.1221 0.1682  5412
+
+== v3 default (name+desc, α_min=0.5, γ=1, default W) ==  brand 0.036  gender 0.576  jaccard 0.317  self@1 0.981
+           R@5   R@10   R@20  nDCG@10    MRR     n
+all     0.0949 0.1116 0.1265   0.1073 0.1486  6794
+flat    0.0621 0.0696 0.0808   0.0675 0.0995  1382
+pyramid 0.1033 0.1224 0.1382   0.1175 0.1612  5412
+
+== v3 tuned (grid + W) ==  brand 0.041  gender 0.593  jaccard 0.345  self@1 0.997
+           R@5   R@10   R@20  nDCG@10    MRR     n
+all     0.1095 0.1274 0.1473   0.1249 0.1695  6794
+flat    0.0674 0.0740 0.0837   0.0712 0.0988  1382
+pyramid 0.1203 0.1410 0.1635   0.1386 0.1875  5412
+
+== Fragrantica also_liked (reference) ==  brand 0.159  gender 0.745  jaccard 0.112  self@1 nan
+           R@5   R@10   R@20  nDCG@10    MRR     n
+all     0.1082 0.1254 0.1380   0.1448 0.1820  6794
+flat    0.1198 0.1359 0.1513   0.1395 0.1661  1382
+pyramid 0.1052 0.1228 0.1346   0.1462 0.1861  5412

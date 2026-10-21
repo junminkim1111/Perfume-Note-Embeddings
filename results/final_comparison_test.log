@@ -1,0 +1,53 @@
+W1021 22:27:29.850000 17416 site-packages/torch/distributed/elastic/multiprocessing/redirects.py:35] NOTE: Redirects are currently not supported in MacOs.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 14230.16it/s]
+test, up ≥ 5: 6794 queries
+
+== random (0s) ==  brand 0.002  gender 0.375  jaccard 0.055
+                R@5        R@10        R@20     nDCG@10         MRR     n
+all      3.7912e-05  5.1293e-05  6.3559e-05  1.7749e-05  2.4678e-04  6794
+flat     0.0000e+00  0.0000e+00  0.0000e+00  0.0000e+00  2.8944e-05  1382
+pyramid  4.7593e-05  6.4391e-05  7.9789e-05  2.2281e-05  3.0241e-04  5412
+
+== Jaccard (note sets) (16s) ==  brand 0.039  gender 0.582  jaccard 0.497
+            R@5    R@10    R@20  nDCG@10     MRR     n
+all      0.1123  0.1340  0.1538   0.1206  0.1614  6794
+flat     0.1088  0.1226  0.1394   0.1106  0.1370  1382
+pyramid  0.1132  0.1369  0.1575   0.1231  0.1677  5412
+
+== TF-IDF one-hot, final W (21s) ==  brand 0.040  gender 0.585  jaccard 0.391
+            R@5    R@10    R@20  nDCG@10     MRR     n
+all      0.1007  0.1226  0.1422   0.1089  0.1455  6794
+flat     0.0763  0.0997  0.1151   0.0797  0.0988  1382
+pyramid  0.1069  0.1285  0.1491   0.1164  0.1574  5412
+
+== MiniLM name, initial W (v2 on new data) (12s) ==  brand 0.036  gender 0.558  jaccard 0.336
+            R@5    R@10    R@20  nDCG@10     MRR     n
+all      0.0903  0.1059  0.1208   0.0994  0.1375  6794
+flat     0.0534  0.0637  0.0702   0.0603  0.0833  1382
+pyramid  0.0997  0.1167  0.1337   0.1094  0.1513  5412
+
+== MiniLM name+desc, initial W (12s) ==  brand 0.036  gender 0.576  jaccard 0.320
+            R@5    R@10    R@20  nDCG@10     MRR     n
+all      0.0916  0.1084  0.1235   0.1014  0.1394  6794
+flat     0.0554  0.0660  0.0748   0.0615  0.0859  1382
+pyramid  0.1008  0.1192  0.1359   0.1116  0.1531  5412
+
+== ours (MiniLM name+desc, final W) (12s) ==  brand 0.042  gender 0.590  jaccard 0.331
+            R@5    R@10    R@20  nDCG@10     MRR     n
+all      0.1028  0.1206  0.1403   0.1130  0.1523  6794
+flat     0.0554  0.0660  0.0750   0.0615  0.0859  1382
+pyramid  0.1149  0.1346  0.1569   0.1262  0.1693  5412
+
+== Fragrantica also_liked (reference) (1s) ==  brand 0.159  gender 0.745  jaccard 0.112
+            R@5    R@10    R@20  nDCG@10     MRR     n
+all      0.1082  0.1254  0.1380   0.1448  0.1820  6794
+flat     0.1198  0.1359  0.1513   0.1395  0.1661  1382
+pyramid  0.1052  0.1228  0.1346   0.1462  0.1861  5412
+ours − TF-IDF one-hot, final W, test R@10: -0.0020  95% CI [-0.0060, +0.0020]
+ours − TF-IDF one-hot, final W, test nDCG@10: +0.0041  95% CI [+0.0011, +0.0070]
+ours − MiniLM name, initial W (v2 on new data), test R@10: +0.0147  95% CI [+0.0113, +0.0181]
+ours − MiniLM name, initial W (v2 on new data), test nDCG@10: +0.0136  95% CI [+0.0108, +0.0167]
+ours − MiniLM name+desc, initial W, test R@10: +0.0122  95% CI [+0.0094, +0.0153]
+ours − MiniLM name+desc, initial W, test nDCG@10: +0.0116  95% CI [+0.0090, +0.0143]
+ours − Jaccard (note sets), test R@10: -0.0134  95% CI [-0.0181, -0.0086]
+ours − Jaccard (note sets), test nDCG@10: -0.0075  95% CI [-0.0117, -0.0036]
