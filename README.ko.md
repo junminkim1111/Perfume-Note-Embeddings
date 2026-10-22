@@ -5,12 +5,12 @@
 
 # Perfume Recommendation with Note Embeddings
 
-향수의 Top / Middle / Base 노트를 sentence embedding으로 바꿔서 향수 사이의 유사도를 측정하는 모델입니다.
+향수의 Top / Middle / Base 노트를 sentence embedding으로 바꿔서 향수 사이의 유사도를 측정하는 모델
 
 ### 핵심 결과
 ![Key results](docs/figures/key_results.png)
 
-Test 세트, 학습에 쓰지 않은 쿼리 6,794개. 정답은 Fragrantica 회원들의 "Smells like this" 투표입니다. 최종 모델 − word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). 이전 버전보다 Recall@10이 26% 높습니다. 브랜드와 탐색 기록까지 쓰는 Fragrantica 자체 "also liked" 목록은 Recall@10 0.125, nDCG@10 0.145입니다. 전체 결과는 [6장](#6-결과)에 있습니다.
+Fragrantica "smells like this" 투표 결과 데이터로 실행된 test에서 Embedding을 이용한 모델이 노트 단어의 유무 만을 판단한 모델보다 우수 
 
 ## 목차
 1. [개요](#1-개요)
@@ -57,7 +57,9 @@ Test 세트, 학습에 쓰지 않은 쿼리 6,794개. 정답은 Fragrantica 회�
 
 ## 2. 설치 및 사용법
 
-Apple silicon Mac(MPS), Python 3.13에서 테스트했고, 패키지 버전은 `requirements.txt`에 고정되어 있습니다. GPU는 없어도 되며, MPS나 CUDA가 있으면 사용하고 없으면 CPU로 실행합니다.
+### 저장소 클론
+
+ 패키지 버전은 `requirements.txt`에 고정되어 있습니다. (tested in Apple silicon Mac(MPS), Python 3.13)
 
 ```bash
 git clone https://github.com/junminkim1111/perfume-note-embeddings.git

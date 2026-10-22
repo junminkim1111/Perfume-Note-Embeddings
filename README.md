@@ -5,12 +5,12 @@
 
 # Perfume Recommendation with Note Embeddings
 
-A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings.
+A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings
 
 ### Key results
 ![Key results](docs/figures/key_results.png)
 
-Test split: 6,794 held-out queries. The ground truth is Fragrantica members' "Smells like this" votes. Ours minus word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). Against the previous version, Recall@10 is 26% higher. Fragrantica's own "also liked" list, which also uses brand and browsing data, scores 0.125 Recall@10 and 0.145 nDCG@10. Full results are in [§6](#6-results).
+On a test split built from Fragrantica's "Smells like this" votes, the embedding model outperforms a model that only checks which note words are present
 
 ## Contents
 1. [Overview](#1-overview)
@@ -57,7 +57,9 @@ Nearest notes in the final embedding space (cosine similarity):
 
 ## 2. Installation & usage
 
-Tested with Python 3.13 on an Apple-silicon Mac (MPS); exact package versions are pinned in `requirements.txt`. A GPU is optional: the code uses MPS or CUDA when available, otherwise the CPU.
+### Clone the repository
+
+Package versions are pinned in `requirements.txt`. (Tested on an Apple-silicon Mac (MPS) with Python 3.13.)
 
 ```bash
 git clone https://github.com/junminkim1111/perfume-note-embeddings.git
@@ -65,7 +67,8 @@ cd perfume-note-embeddings
 pip install -r requirements.txt
 ```
 
-Download the dataset (needs a Kaggle API token: kaggle.com → Settings → API) and convert it:
+### Prepare the data
+Needs a Kaggle API token (kaggle.com → Settings → API).
 
 ```bash
 pip install kaggle
@@ -75,7 +78,8 @@ python src/preprocess.py
 
 `preprocess.py` writes `data/perfumes_clean.csv`, `data/smells_like.csv` and `data/also_liked.csv`.
 
-Run the demo (a custom note query and a random perfume from the database):
+### Run the demo
+Shows recommendations for a custom note query and for a random perfume from the database.
 
 ```bash
 python src/perfume_recommendation.py
@@ -83,7 +87,7 @@ python src/perfume_recommendation.py
 
 The first run encodes the 2,589 notes and caches them in `cache/`.
 
-Use it from Python:
+### Use from Python
 
 ```python
 import sys; sys.path.insert(0, "src")
