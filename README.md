@@ -3,14 +3,13 @@
   <a href="./README.ko.md">🇰🇷 한국어</a>
 </p>
 
-# Perfume Recommendation with Note Embeddings
+<h1 align="center">Perfume Recommendation with Note Embeddings</h1>
 
-A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings
+<p align="center">A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings</p>
 
-### Key results
-![Key results](docs/figures/key_results.png)
+<p align="center"><img src="docs/figures/note_map.png" alt="Note embedding map"></p>
 
-On a test split built from Fragrantica's "Smells like this" votes, the embedding model outperforms a model that only checks which note words are present
+<p align="center">On a test split built from Fragrantica's "Smells like this" votes, the embedding model outperforms a model that only checks which note words are present</p>
 
 ## Contents
 1. [Overview](#1-overview)
