@@ -7,3 +7,7 @@ data/perfumes_clean.csv
 data/smells_like.csv
 data/also_liked.csv
 docs/handoff.md
+results/
+src/make_figures.py
+src/tests.py
+src/compare_embeddings.py

@@ -1,5 +1,6 @@
 """v2 평가: "Smells like this" 투표를 정답으로 (handoff 5.6)"""
 import math
+import os
 import sys
 import numpy as np
 import pandas as pd
@@ -139,8 +140,9 @@ def evaluate(rec, truth, lists, self_hit=float("nan")):
 
 
 if __name__ == "__main__":
+    os.makedirs("results", exist_ok=True)  # results/는 레포에 없다 (.gitignore)
     from sentence_transformers import SentenceTransformer
-    from perfume_recommendation_v2 import Recommender, INITIAL_W
+    from perfume_recommendation import Recommender, INITIAL_W
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     model = SentenceTransformer("all-MiniLM-L6-v2", device=str(device))
@@ -152,8 +154,8 @@ if __name__ == "__main__":
         # README 결과 비교: 테스트 세트, up ≥ 5, 모든 방법을 같은 공정한 동점 처리(top_rows)로
         import pickle
         import time
-        from compare_embeddings import get_E, note_texts
-        from perfume_recommendation_v2 import FINAL_W
+        from functions import get_E, note_texts
+        from perfume_recommendation import FINAL_W
         E = {i: get_E("minilm", i, note_texts(rec.vocab, i), device) for i in ("name", "name+desc")}
         rec = Recommender(rec.dataset, None, device, E=E["name+desc"])
         truth = load_truth(rec, 5, "test")
@@ -169,7 +171,7 @@ if __name__ == "__main__":
         methods = {"random": lambda: random_lists(len(rec.dataset), query_rows),
                    "Jaccard (note sets)": lambda: jaccard_lists(rec, query_rows),
                    "TF-IDF one-hot, final W": lambda: onehot_lists(rec, FINAL_W, query_rows),
-                   "MiniLM name, initial W (v2 on new data)": lambda: ours("name", INITIAL_W),
+                   "MiniLM name, initial W (v1 setup on new data)": lambda: ours("name", INITIAL_W),
                    "MiniLM name+desc, initial W": lambda: ours("name+desc", INITIAL_W),
                    "ours (MiniLM name+desc, final W)": lambda: ours("name+desc", FINAL_W),
                    "Fragrantica also_liked (reference)": lambda: also_liked_lists(rec, query_rows)}
@@ -187,7 +189,7 @@ if __name__ == "__main__":
         with open("cache/final_comparison_lists.pkl", "wb") as f:
             pickle.dump({"query_rows": query_rows, "lists": all_lists}, f)
         idx = np.random.default_rng(0).integers(0, len(query_rows), (2000, len(query_rows)))
-        for base in ("TF-IDF one-hot, final W", "MiniLM name, initial W (v2 on new data)", "MiniLM name+desc, initial W", "Jaccard (note sets)"):
+        for base in ("TF-IDF one-hot, final W", "MiniLM name, initial W (v1 setup on new data)", "MiniLM name+desc, initial W", "Jaccard (note sets)"):
             diff = per_query["ours (MiniLM name+desc, final W)"] - per_query[base]
             for j, m in enumerate(("R@10", "nDCG@10")):
                 bs = diff[:, j][idx].mean(1)

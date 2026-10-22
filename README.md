@@ -7,7 +7,7 @@
 
 Finds perfumes that smell alike from their **Top / Middle / Base notes alone**, by embedding every note with a sentence-embedding model instead of matching note names as keywords.
 
-![v2 model architecture](docs/model_architecture_v2.png)
+![v2 model architecture](docs/model_architecture.png)
 
 - 137,668 perfumes from Fragrantica (2026 dump), 2,589 distinct notes
 - Evaluated against **Fragrantica members' "Smells like this" votes** (Recall@K, nDCG@10, MRR)
@@ -74,15 +74,15 @@ Download the dataset (needs a Kaggle API token: kaggle.com → Settings → API)
 ```bash
 pip install kaggle
 kaggle datasets download ledecanteur/fragrantica-perfumes --unzip -p data/raw
-python src/prepare_data.py
+python src/preprocess.py
 ```
 
-`prepare_data.py` writes `data/perfumes_clean.csv`, `data/smells_like.csv` and `data/also_liked.csv`.
+`preprocess.py` writes `data/perfumes_clean.csv`, `data/smells_like.csv` and `data/also_liked.csv`.
 
 Run the demo (a custom note query and a random perfume from the database):
 
 ```bash
-python src/perfume_recommendation_v2.py
+python src/perfume_recommendation.py
 ```
 
 The first run encodes the 2,589 notes and caches them in `cache/`.
@@ -92,9 +92,8 @@ Use it from Python:
 ```python
 import sys; sys.path.insert(0, "src")
 import pandas as pd, torch
-from perfume_recommendation_v2 import Recommender
-from compare_embeddings import get_E, note_texts
-from functions import get_doc_IDF_weights
+from perfume_recommendation import Recommender
+from functions import get_E, note_texts, get_doc_IDF_weights
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 dataset = pd.read_csv("data/perfumes_clean.csv")
@@ -122,7 +121,7 @@ Notes that do not occur in the database are dropped with a warning (there is no 
 
 Each note comes with a 0–100 weight from member votes ("how prominent is this note"). **The model does not use these weights** ([§5.2](#52-note-weights-idf-vs-member-votes)); it only uses which notes a perfume lists.
 
-`prepare_data.py` converts the dump into one row per perfume with three note layers:
+`preprocess.py` converts the dump into one row per perfume with three note layers:
 
 | Notes as listed on Fragrantica | Perfumes | Conversion |
 |---|---|---|
@@ -243,7 +242,7 @@ $W$ has six free entries (symmetric). They are optimized as softplus-transformed
 
 The tuned $W$ is nearly diagonal: layers are compared with the same layer, and the middle (heart) layer matters most. Tuning $W$ is the largest single improvement: +0.012 Recall@10 and +0.012 nDCG@10 on test, both significant (§6).
 
-**Final settings** (`results/final_params.json`): `all-MiniLM-L6-v2` on `"name: description"`, IDF note weights, tuned $W$ above.
+**Final settings**: `all-MiniLM-L6-v2` on `"name: description"`, IDF note weights, tuned $W$ above.
 
 ---
 
@@ -328,35 +327,27 @@ All five are Aventus-inspired dupes that copy its note list almost verbatim, whi
 
 ```
 src/
-  perfume_recommendation_v2.py   final recommender (Recommender class, demo)
-  prepare_data.py                raw Kaggle dump → data/*.csv
-  functions.py                   note parsing, per-perfume IDF, note weights
-  compare_embeddings.py          §5.1 model × input comparison
-  optimize_v2.py                 §5.2–5.3 grid search + Nelder-Mead; `idf_only` mode
-  evaluate_v2.py                 metrics, splits, baselines; `baselines` mode = §6
-  make_figures.py                figures in docs/figures/
-  tests.py                       self-checks (python src/tests.py)
-  v1/                            previous version: recommender, evaluation, W tuning (old dataset)
+  perfume_recommendation.py      final recommender (Recommender class, demo)
+  preprocess.py                  raw Kaggle dump → data/*.csv
+  functions.py                   note parsing, per-perfume IDF, note weights, note embedding loader (get_E)
+  optimize.py                    §5.2–5.3 grid search + Nelder-Mead; `idf_only` mode
+  evaluate.py                    metrics, splits, baselines; `baselines` mode = §6
+  v1/                            previous version: recommender, evaluation, W tuning, notebook (old dataset)
 data/
   note_descriptions.csv          LLM note descriptions (committed)
   fra_cleaned.csv                old dataset used by v1
   raw/                           Kaggle download (not committed)
-results/                         logs, tables and parameters of every experiment
 docs/                            architecture figure (HTML source + PNG), figures
-notebooks/                       early experiments
 ```
 
 Re-running everything, in order:
 
 ```bash
-python src/prepare_data.py                         # seconds
-python src/tests.py                                # seconds
-python src/evaluate_v2.py                          # step-5 baselines, ~1 min
-python src/compare_embeddings.py                   # §5.1, downloads 4 models; EmbeddingGemma needs Hugging Face access
-python src/optimize_v2.py                          # §5.2–5.3 with member votes, ~15 min
-python src/optimize_v2.py idf_only                 # §5.2–5.3 IDF only (final W), ~12 min
-python src/evaluate_v2.py baselines                # §6, ~2 min
-python src/make_figures.py
+python src/preprocess.py                 # seconds
+python src/evaluate.py                   # step-5 baselines, ~1 min
+python src/optimize.py                   # §5.2–5.3 with member votes, ~15 min
+python src/optimize.py idf_only          # §5.2–5.3 IDF only (final W), ~12 min
+python src/evaluate.py baselines         # §6, ~2 min
 ```
 
 `cache/` holds note embeddings; delete `cache/emb_*desc*.pt` after editing `data/note_descriptions.csv`.
@@ -368,5 +359,5 @@ python src/make_figures.py
 
 ## 10. License & acknowledgements
 
-- Data: [Fragrantica Perfumes: Ratings, Notes, Votes & More](https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes), licensed **CC BY-NC-SA 4.0** (non-commercial, attribution, share-alike). Derived files in this repository (`data/note_descriptions.csv`, `results/`) are shared under the same license. All perfume data originates from [Fragrantica](https://www.fragrantica.com).
+- Data: [Fragrantica Perfumes: Ratings, Notes, Votes & More](https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes), licensed **CC BY-NC-SA 4.0** (non-commercial, attribution, share-alike). The derived file `data/note_descriptions.csv` is shared under the same license. All perfume data originates from [Fragrantica](https://www.fragrantica.com).
 - Embedding models: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), [EmbeddingGemma](https://huggingface.co/google/embeddinggemma-300m), [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B).

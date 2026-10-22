@@ -7,7 +7,7 @@ import torch
 from torch import nn
 from scipy.sparse import csr_matrix
 from functions import parse_notes, get_doc_IDF_weights, get_note_weights
-from prepare_data import LAYERS, fill_layers
+from preprocess import LAYERS, fill_layers
 
 INITIAL_W = [[0.8, 0.25, 0.1],  # v2의 W. 튜닝 시작점이자 비교 기준
              [0.25, 1., 0.35],
@@ -99,7 +99,7 @@ class Recommender:
 
 if __name__ == "__main__":
     import random
-    from compare_embeddings import get_E, note_texts
+    from functions import get_E, note_texts
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     print(f"USING DEVICE: {device}")

@@ -8,7 +8,7 @@
 향수의 **Top / Middle / Base 노트만으로** 비슷한 향의 향수를 찾아 주는 추천 모델입니다.
 노트 이름을 키워드처럼 맞춰 보는 대신, sentence embedding 모델로 노트 하나하나를 벡터로 바꿔서 "냄새가 비슷한 노트"끼리 가까워지게 만듭니다.
 
-![v2 model architecture](docs/model_architecture_v2.png)
+![v2 model architecture](docs/model_architecture.png)
 
 **주요 특징**
 - Fragrantica 향수 137,668개 (2026년 데이터), 노트 2,589종
@@ -79,16 +79,16 @@ Kaggle API 토큰이 필요합니다 (kaggle.com → Settings → API).
 ```bash
 pip install kaggle
 kaggle datasets download ledecanteur/fragrantica-perfumes --unzip -p data/raw
-python src/prepare_data.py
+python src/preprocess.py
 ```
 
-`prepare_data.py`는 `data/perfumes_clean.csv`, `data/smells_like.csv`, `data/also_liked.csv`를 만듭니다.
+`preprocess.py`는 `data/perfumes_clean.csv`, `data/smells_like.csv`, `data/also_liked.csv`를 만듭니다.
 
 ### 데모 실행
 직접 입력한 노트 쿼리 하나와, DB에서 무작위로 고른 향수 하나로 추천 결과를 보여 줍니다.
 
 ```bash
-python src/perfume_recommendation_v2.py
+python src/perfume_recommendation.py
 ```
 
 처음 실행할 때 노트 2,589개를 인코딩해서 `cache/`에 저장합니다.
@@ -98,9 +98,8 @@ python src/perfume_recommendation_v2.py
 ```python
 import sys; sys.path.insert(0, "src")
 import pandas as pd, torch
-from perfume_recommendation_v2 import Recommender
-from compare_embeddings import get_E, note_texts
-from functions import get_doc_IDF_weights
+from perfume_recommendation import Recommender
+from functions import get_E, note_texts, get_doc_IDF_weights
 
 device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
 dataset = pd.read_csv("data/perfumes_clean.csv")
@@ -129,7 +128,7 @@ DB에 없는 노트는 embedding이 없으므로 경고를 띄우고 빼고 검�
 
 노트마다 회원 투표로 매긴 0–100 가중치("이 노트가 얼마나 두드러지는가")가 있습니다. **모델은 이 가중치를 쓰지 않고** ([5.2](#52-노트-가중치-idf-vs-회원-투표)), 향수에 어떤 노트가 있는지만 봅니다.
 
-`prepare_data.py`는 원본을 향수당 한 행, 노트 layer 세 개로 바꿉니다.
+`preprocess.py`는 원본을 향수당 한 행, 노트 layer 세 개로 바꿉니다.
 
 | Fragrantica의 노트 표기 | 향수 수 | 변환 |
 |---|---|---|
@@ -277,7 +276,7 @@ $W$는 대칭이라 자유 원소가 6개입니다.
 - 튜닝한 $W$는 거의 대각 행렬입니다. 같은 layer끼리 비교하는 것이 거의 전부이고, Middle(heart) layer가 가장 중요합니다.
 - $W$ 튜닝이 단일 개선으로는 가장 컸습니다: test에서 Recall@10 +0.012, nDCG@10 +0.012로 둘 다 유의합니다 (6장).
 
-**최종 설정** (`results/final_params.json`)
+**최종 설정**
 - 임베딩: `all-MiniLM-L6-v2`, 입력 `"이름: 설명"`
 - 노트 가중치: IDF
 - $W$: 위의 튜닝 결과
@@ -373,35 +372,27 @@ Test 세트의 모든 정답을 세어 보면, 두 모델이 서로 다르게 �
 
 ```
 src/
-  perfume_recommendation_v2.py   최종 추천 모델 (Recommender 클래스, 데모)
-  prepare_data.py                Kaggle 원본 → data/*.csv
-  functions.py                   노트 파싱, 향수 단위 IDF, 노트 가중치
-  compare_embeddings.py          5.1 모델 × 입력 비교
-  optimize_v2.py                 5.2–5.3 grid search + Nelder-Mead, `idf_only` 모드
-  evaluate_v2.py                 지표, 데이터 분할, baseline; `baselines` 모드 = 6장
-  make_figures.py                docs/figures/ 그림 생성
-  tests.py                       self-check (python src/tests.py)
-  v1/                            이전 버전: 추천 모델, 평가, W 튜닝 (이전 데이터셋)
+  perfume_recommendation.py      최종 추천 모델 (Recommender 클래스, 데모)
+  preprocess.py                  Kaggle 원본 → data/*.csv
+  functions.py                   노트 파싱, 향수 단위 IDF, 노트 가중치, 노트 embedding 로더 (get_E)
+  optimize.py                    5.2–5.3 grid search + Nelder-Mead, `idf_only` 모드
+  evaluate.py                    지표, 데이터 분할, baseline; `baselines` 모드 = 6장
+  v1/                            이전 버전: 추천 모델, 평가, W 튜닝, 노트북 (이전 데이터셋)
 data/
   note_descriptions.csv          LLM 노트 설명 (커밋됨)
   fra_cleaned.csv                v1이 쓰는 이전 데이터셋
   raw/                           Kaggle 다운로드 (커밋 안 함)
-results/                         모든 실험의 로그, 결과표, 파라미터
 docs/                            아키텍처 그림 (HTML 원본 + PNG), 그림
-notebooks/                       초기 실험
 ```
 
 전체 실험을 처음부터 다시 돌리는 순서입니다.
 
 ```bash
-python src/prepare_data.py                         # 몇 초
-python src/tests.py                                # 몇 초
-python src/evaluate_v2.py                          # 5단계 baseline, 약 1분
-python src/compare_embeddings.py                   # 5.1, 모델 4개 다운로드 (EmbeddingGemma는 Hugging Face 접근 승인 필요)
-python src/optimize_v2.py                          # 5.2–5.3 회원 투표 사용, 약 15분
-python src/optimize_v2.py idf_only                 # 5.2–5.3 IDF만 사용 (최종 W), 약 12분
-python src/evaluate_v2.py baselines                # 6장, 약 2분
-python src/make_figures.py
+python src/preprocess.py                 # 몇 초
+python src/evaluate.py                   # 5단계 baseline, 약 1분
+python src/optimize.py                   # 5.2–5.3 회원 투표 사용, 약 15분
+python src/optimize.py idf_only          # 5.2–5.3 IDF만 사용 (최종 W), 약 12분
+python src/evaluate.py baselines         # 6장, 약 2분
 ```
 
 > `cache/`에는 노트 embedding이 저장됩니다. `data/note_descriptions.csv`를 수정했다면 `cache/emb_*desc*.pt`를 지우고 다시 실행하세요.
@@ -415,5 +406,5 @@ python src/make_figures.py
 
 ## 10. 라이선스 및 감사의 글
 
-- **데이터**: [Fragrantica Perfumes: Ratings, Notes, Votes & More](https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes), **CC BY-NC-SA 4.0** (비상업적 이용, 출처 표시, 동일 조건 변경 허락). 이 레포의 파생 파일(`data/note_descriptions.csv`, `results/`)도 같은 라이선스를 따릅니다. 모든 향수 데이터의 출처는 [Fragrantica](https://www.fragrantica.com)입니다.
+- **데이터**: [Fragrantica Perfumes: Ratings, Notes, Votes & More](https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes), **CC BY-NC-SA 4.0** (비상업적 이용, 출처 표시, 동일 조건 변경 허락). 이 레포의 파생 파일 `data/note_descriptions.csv`도 같은 라이선스를 따릅니다. 모든 향수 데이터의 출처는 [Fragrantica](https://www.fragrantica.com)입니다.
 - **Embedding 모델**: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), [EmbeddingGemma](https://huggingface.co/google/embeddinggemma-300m), [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)

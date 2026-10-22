@@ -1,5 +1,7 @@
 from collections import Counter
+import gc
 import math
+import os
 
 
 
@@ -69,3 +71,58 @@ def get_note_weights(layers, IDF_weight, alpha_min):
         total = sum(w.values())
         out.append({n: x / total for n, x in w.items()})
     return out
+
+
+# 노트 embedding (handoff 5.8). key: (모델, encode 인자)
+MODELS = {
+    "minilm": ("all-MiniLM-L6-v2", {}),
+    "bge": ("BAAI/bge-base-en-v1.5", {}),  # 대칭 작업이라 검색용 지시문은 붙이지 않는다
+    "gemma": ("google/embeddinggemma-300m", {"prompt_name": "STS"}),
+    "qwen": ("Qwen/Qwen3-Embedding-0.6B",
+             {"prompt": "Instruct: Given the name of a perfume note, represent how it smells\nQuery: "}),
+}
+
+
+def note_texts(vocab, input_type):
+    """노트별 임베딩 입력. UNKNOWN 노트는 이름으로 대신한다. 설명이 없는 노트가 있으면 None."""
+    if input_type == "name":
+        return vocab
+    path = "data/note_descriptions.csv"
+    if not os.path.exists(path):
+        return None
+    import pandas as pd
+    desc = pd.read_csv(path).set_index("note")
+    if set(vocab) - set(desc.index):
+        return None
+    texts = []
+    for n in vocab:
+        d = desc.loc[n]
+        if d["unknown"]:
+            texts.append(n)
+        else:
+            texts.append(d["description"] if input_type == "desc" else f"{n}: {d['description']}")
+    return texts
+
+
+def cached(path, make):
+    """path에 있으면 읽고, 없으면 make()로 만들어 저장 (numpy 배열)"""
+    import torch
+    if os.path.exists(path):
+        return torch.load(path).numpy()
+    E = make()
+    os.makedirs("cache", exist_ok=True)
+    torch.save(torch.from_numpy(E), path)
+    return E
+
+
+def get_E(key, input_type, texts, device):
+    """노트 embedding E (V × d). cache/emb_{key}_{input_type}.pt에 저장해 두고 다시 쓴다"""
+    import torch
+    def encode():
+        from sentence_transformers import SentenceTransformer
+        name, kwargs = MODELS[key]
+        model = SentenceTransformer(name, device=str(device))
+        E = model.encode(texts, convert_to_numpy=True, batch_size=64, **kwargs)
+        del model; gc.collect(); torch.mps.empty_cache() if device.type == "mps" else None
+        return E
+    return cached(f"cache/emb_{key}_{input_type}.pt", encode)

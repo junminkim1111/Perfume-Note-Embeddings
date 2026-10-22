@@ -2,7 +2,7 @@
 1) (α_min, γ) 격자 (기본 W)  2) W Nelder-Mead (학습 표본 10k)  3) 튜닝한 W로 격자 재확인
 4) 검증 세트로 최종 선택  5) 테스트 세트 1회 측정
 γ: IDF 지수. IDF^γ를 IDF_weight로 넘긴다 (γ = 0이면 IDF 끔).
-python src/optimize_v2.py idf_only   # IDF만 (α_min 1, γ 1)에 W를 따로 튜닝해서 튜닝된 v2(투표 사용)와 비교"""
+python src/optimize.py idf_only   # IDF만 (α_min 1, γ 1)에 W를 따로 튜닝해서 튜닝된 v2(투표 사용)와 비교"""
 import json
 import os
 import sys
@@ -10,9 +10,9 @@ import numpy as np
 import pandas as pd
 import torch
 from scipy.optimize import minimize
-from perfume_recommendation_v2 import Recommender, INITIAL_W
-from evaluate_v2 import load_truth, model_lists, evaluate, random_lists, also_liked_lists, score_query
-from compare_embeddings import get_E, note_texts
+from perfume_recommendation import Recommender, INITIAL_W
+from evaluate import load_truth, model_lists, evaluate, random_lists, also_liked_lists, score_query
+from functions import get_E, note_texts
 from functions import get_doc_IDF_weights
 
 MIN_UP = 5
@@ -83,6 +83,7 @@ def save(obj, path):
 
 
 if __name__ == "__main__":
+    os.makedirs("results", exist_ok=True)  # results/는 레포에 없다 (.gitignore)
     device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     dataset = pd.read_csv("data/perfumes_clean.csv")
     IDF_weight = get_doc_IDF_weights(dataset)
