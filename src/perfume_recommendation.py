@@ -1,12 +1,13 @@
 """v2: 새 데이터(data/perfumes_clean.csv) + IDF 가중 평균 + 1152차원 행렬곱 검색 (handoff 5.3, 5.5)
-최종 설정 (6단계): MiniLM name+desc 노트 임베딩, IDF만 (회원 투표 가중치 안 씀, α_min = 1), FINAL_W"""
+최종 설정: MiniLM name+desc 노트 임베딩, IDF만 (회원 투표 가중치 안 씀, α_min = 1), FINAL_W,
+flat 향수가 낀 쌍은 노트 전체 집합으로 비교 (FINAL_DELTA)"""
 import warnings
 import numpy as np
 import pandas as pd
 import torch
 from torch import nn
 from scipy.sparse import csr_matrix
-from functions import parse_notes, get_doc_IDF_weights, get_note_weights
+from functions import parse_notes, merge_notes, get_doc_IDF_weights, get_note_weights
 from preprocess import LAYERS, fill_layers
 
 INITIAL_W = [[0.8, 0.25, 0.1],  # v2의 W. 튜닝 시작점이자 비교 기준
@@ -15,12 +16,19 @@ INITIAL_W = [[0.8, 0.25, 0.1],  # v2의 W. 튜닝 시작점이자 비교 기준
 FINAL_W = [[0.3076, 0.0228, 0.0085],  # IDF만 설정으로 튜닝 (results/idf_only.json)
            [0.0228, 0.4044, 0.0209],
            [0.0085, 0.0209, 0.1836]]
+FINAL_DELTA = 0.125  # flat 쌍의 합집합 cosine에서 빼는 값 (train에서 튜닝, results/flat.json)
 
 
 class Recommender:
-    def __init__(self, dataset, model, device, alpha_min=1., layer_weights=FINAL_W, IDF_weight=None, E=None):
+    def __init__(self, dataset, model, device, alpha_min=1., layer_weights=FINAL_W, IDF_weight=None, E=None, delta=FINAL_DELTA):
+        """delta: None이면 모든 쌍을 레이어별로 비교한다.
+        숫자면 flat 향수가 낀 쌍은 노트 전체 집합(합집합)끼리 비교하고, 점수에서 delta를 뺀다
+        (합집합 cosine이 레이어별 점수보다 체계적으로 높아서 같은 척도로 맞추는 값)."""
         self.dataset = dataset.reset_index(drop=True)
         self.device = device
+        self.delta = delta
+        flat = self.dataset["is_flat"].values if "is_flat" in self.dataset else np.zeros(len(self.dataset), bool)
+        self.flat = torch.tensor(flat.astype(bool), device=device)
         self.row_of = {pid: i for i, pid in enumerate(self.dataset["id"])}
         self.layers = [[parse_notes(v) for v in row] for row in zip(*(self.dataset[c] for c in LAYERS))]
         self.IDF_weight = IDF_weight or get_doc_IDF_weights(self.dataset)
@@ -37,10 +45,10 @@ class Recommender:
         self.W = W / W.sum()
 
     def weight_matrices(self, perfumes, alpha_min):
-        """[[top, middle, base] dict] -> 레이어별 노트 가중치 희소 행렬 S_l (n × V), 행 합 1"""
+        """[[layer dict, ...]] -> 레이어별 노트 가중치 희소 행렬 S_l (n × V), 행 합 1"""
         weights = [get_note_weights(p, self.IDF_weight, alpha_min) for p in perfumes]
         out = []
-        for l in range(3):
+        for l in range(len(weights[0])):
             rows, cols, vals = [], [], []
             for r, w in enumerate(weights):
                 for n, x in w[l].items():
@@ -49,21 +57,39 @@ class Recommender:
         return out
 
     def embed(self, perfumes, alpha_min):
-        """[[top, middle, base] dict] -> (n, 3·d) 레이어별 정규화된 가중 평균 임베딩"""
+        """[[layer dict, ...]] -> (n, 레이어 수·d) 레이어별 정규화된 가중 평균 임베딩"""
         blocks = [torch.from_numpy(S @ self.E).float() for S in self.weight_matrices(perfumes, alpha_min)]  # MPS 희소 연산 대신 CPU
         return torch.cat([nn.functional.normalize(b, dim=1) for b in blocks], dim=1).to(self.device)
 
     def build_DB(self, alpha_min):
         self.alpha_min = alpha_min
         self.D = self.embed(self.layers, alpha_min)  # (N, 3·d)
+        self.U = self.embed([[merge_notes(*p)] for p in self.layers], alpha_min)  # (N, d) 노트 전체 집합
 
     def query_vectors(self, q):
         """q (B, 3·d) -> Q' (B, 3·d), Q'_j = Σ_i W_ij q̂_i. 점수 = Q' @ Dᵀ = Σ_ij W_ij cos(q_i, d_j)"""
         q = q.view(len(q), 3, -1)
         return torch.einsum("ij,bid->bjd", self.W, q).reshape(len(q), -1)
 
-    def search(self, q, k, exclude_rows=None):
-        scores = self.query_vectors(q) @ self.D.T  # (B, N)
+    def scores(self, q, qu=None, q_flat=None):
+        """쿼리 레이어 임베딩 q (B, 3·d) -> 점수 (B, N).
+        delta가 있으면 쿼리나 후보가 flat인 쌍은 합집합 임베딩 qu (B, d)끼리의 cosine − delta"""
+        scores = self.query_vectors(q) @ self.D.T
+        if self.delta is not None and qu is not None:
+            mixed = q_flat[:, None] | self.flat[None, :]
+            scores = torch.where(mixed, qu @ self.U.T - self.delta, scores)
+        return scores
+
+    def row_scores(self, rows):
+        """DB 향수(행 번호)를 쿼리로 쓸 때의 점수 (B, N)"""
+        return self.scores(self.D[rows], self.U[rows], self.flat[rows])
+
+    def search_rows(self, rows, k):
+        """DB 향수 쿼리 -> 자기 자신을 뺀 상위 k개 (점수, 행 번호)"""
+        return self.search(self.D[rows], k, exclude_rows=rows, qu=self.U[rows], q_flat=self.flat[rows])
+
+    def search(self, q, k, exclude_rows=None, qu=None, q_flat=None):
+        scores = self.scores(q, qu, q_flat)  # (B, N)
         if exclude_rows is not None:
             scores[torch.arange(len(q)), exclude_rows] = -torch.inf
         top_scores, top_rows = torch.topk(scores, k)
@@ -72,7 +98,7 @@ class Recommender:
     def recommend_ids(self, ids, k=5):
         """DB 향수 id 목록 -> (점수, 추천 id), 자기 자신 제외"""
         rows = torch.tensor([self.row_of[i] for i in ids], device=self.device)
-        top_scores, top_rows = self.search(self.D[rows], k, exclude_rows=rows)
+        top_scores, top_rows = self.search_rows(rows, k)
         return top_scores, torch.from_numpy(self.dataset["id"].values[top_rows.numpy()])
 
     def recommend_notes(self, top=(), middle=(), base=(), k=5):
@@ -85,8 +111,10 @@ class Recommender:
             layers = [{n: v for n, v in layer.items() if n in self.note_idx} for layer in layers]
         if not any(layers):
             raise ValueError("DB에 있는 노트가 하나도 없다")
+        q_flat = torch.tensor([sum(map(bool, layers)) == 1], device=self.device)  # 한 레이어만 입력하면 flat
         _, layers = fill_layers(*layers, {})
-        top_scores, top_rows = self.search(self.embed([layers], self.alpha_min), k)
+        qu = self.embed([[merge_notes(*layers)]], self.alpha_min)
+        top_scores, top_rows = self.search(self.embed([layers], self.alpha_min), k, qu=qu, q_flat=q_flat)
         return top_scores[0], torch.from_numpy(self.dataset["id"].values[top_rows[0].numpy()])
 
     def display(self, title, scores, ids):

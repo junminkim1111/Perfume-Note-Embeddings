@@ -6,7 +6,7 @@
 # Perfume Recommendation with Note Embeddings
 
 향수의 **Top / Middle / Base 노트만으로** 비슷한 향의 향수를 찾아 주는 추천 모델입니다.
-노트 이름을 키워드처럼 맞춰 보는 대신, sentence embedding 모델로 노트 하나하나를 벡터로 바꿔서 "냄새가 비슷한 노트"끼리 가까워지게 만듭니다.
+노트 이름을 키워드처럼 맞춰 보는 대신, sentence embedding 모델로 노트 하나하나를 벡터로 바꿔서 "향이 비슷한 노트"끼리 가까워지게 만듭니다.
 
 ![v2 model architecture](docs/model_architecture.png)
 
@@ -39,12 +39,13 @@
 - **비슷한 철자, 다른 향**: `orange`(citrus)와 `orange blossom`(white floral)은 단어가 겹친다고 해서 가까우면 *안 됩니다*.
 
 ### 이 프로젝트에서 하는 것
-노트마다 sentence embedding 벡터를 만들면, 이름이 달라도 향이 비슷한 노트끼리 가까이 놓입니다. 향수는 layer별로 노트 벡터의 가중 평균으로 표현하고, 두 향수를 layer끼리 비교합니다.
+노트마다 sentence embedding 벡터를 만들면, 이름이 달라도 향이 비슷한 노트끼리 가까이 놓입니다. 향수는 layer별로 노트 벡터의 가중 평균으로 표현하고, 두 향수를 layer끼리 비교합니다. Pyramid 없이 노트만 나열된 향수는 노트 전체 집합으로 비교합니다.
 
 1. **Note encoding**: 서로 다른 노트를 `all-MiniLM-L6-v2`로 한 번씩만 인코딩합니다. 입력은 `"<노트>: <짧은 향 설명>"`입니다. 노트 이름만으로는 모델이 알 수 있는 정보가 너무 적어서, 노트마다 LLM이 쓴 향 설명을 붙였습니다.
 2. **Layer embedding**: Top / Middle / Base 각각에서 노트 벡터를 IDF로 가중 평균합니다. musk처럼 어디에나 들어가는 노트보다 드물고 특징적인 노트가 더 큰 비중을 갖습니다.
 3. **Layer-wise similarity**: 학습한 3×3 행렬 `W`로, 쿼리의 각 layer와 후보의 각 layer 사이 cosine similarity에 가중치를 줍니다.
-4. **Search**: 전체 점수가 후보마다 내적 한 번으로 정리되기 때문에, DB는 `137,668 × 1,152` 행렬 하나입니다.
+4. **Flat 향수 처리**: 둘 중 하나라도 pyramid가 없으면 두 향수의 노트 전체 집합을 비교하고, 두 종류의 점수를 같은 척도로 맞추는 보정값 δ를 뺍니다.
+5. **Search**: layer별 점수가 후보마다 내적 한 번으로 정리되기 때문에, DB는 `137,668 × 1,152` 행렬입니다 (노트 전체 집합 벡터용 `137,668 × 384` 행렬 추가).
 
 최종 embedding 공간에서 가장 가까운 노트 (cosine similarity):
 
@@ -58,8 +59,8 @@
 | orange blossom | citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83) |
 
 > **결과 요약**
-> 학습에 쓰지 않은 "Smells like this" 투표로 평가했을 때, 파이프라인이 같은 word presence 모델과 Recall@10은 같고 (0.121 vs 0.123, 유의하지 않음), 순위 품질은 유의하게 더 좋습니다 (nDCG@10 0.113 vs 0.109, MRR 0.152 vs 0.146).
-> Top/Middle/Base pyramid가 있는 향수에서는 확실히 낫고, 노트가 flat 목록으로만 있는 향수에서는 확실히 나쁩니다 ([6장](#6-결과), [8장](#8-한계)).
+> 학습에 쓰지 않은 "Smells like this" 투표로 평가했을 때, 파이프라인이 같은 word presence 모델보다 Recall@10 (0.134 vs 0.128)과 nDCG@10 (0.124 vs 0.116) 모두 유의하게 높습니다.
+> 이전 버전보다는 Recall@10이 26% 올랐습니다 ([6장](#6-결과)).
 
 ---
 
@@ -68,8 +69,8 @@
 Python 3.11 이상이 필요합니다 (3.13에서 테스트했고, 패키지 버전은 `requirements.txt`에 고정되어 있습니다). GPU는 없어도 되며, Apple silicon(MPS)과 CUDA를 자동으로 사용합니다.
 
 ```bash
-git clone https://github.com/junminkim1111/Perfume-Recomendation-with-SBERT.git
-cd Perfume-Recomendation-with-SBERT
+git clone https://github.com/junminkim1111/perfume-note-embeddings.git
+cd perfume-note-embeddings
 pip install -r requirements.txt
 ```
 
@@ -133,7 +134,7 @@ DB에 없는 노트는 embedding이 없으므로 경고를 띄우고 빼고 검�
 | Fragrantica의 노트 표기 | 향수 수 | 변환 |
 |---|---|---|
 | Pyramid 전체 (Top / Middle / Base) | 98,371 | 그대로 사용 |
-| Flat 목록만 (pyramid 없음) | 38,637 (27.6%) | 같은 노트를 세 layer에 모두 복사 |
+| Flat 목록만 (pyramid 없음) | 38,637 (27.6%) | 같은 노트를 세 layer에 모두 복사. 점수는 노트 전체 집합으로 계산 ([4.4](#44-flat-향수)) |
 | 일부 layer가 빈 pyramid | 660 | 빈 layer를 나머지 layer 노트의 합집합으로 채움 |
 | 노트 없음 | 2,560 | 제외 |
 
@@ -199,7 +200,23 @@ $$
 **왜 대각선만이 아니라 행렬인가요?**
 비대각 항이 있으면 한 향수가 heart 노트로 표기한 노트를 다른 향수가 base 노트로 표기했을 때도 서로 맞출 수 있습니다. 브랜드마다 layer 표기가 제각각이라 이런 경우가 흔합니다. 튜닝한 $W$(5.3)는 거의 대각 행렬이었고, Middle↔Middle의 비중이 가장 컸습니다.
 
-### 4.4 행렬곱 한 번으로 검색
+### 4.4 Flat 향수
+향수의 28%는 pyramid 없이 노트만 나열되어 있습니다. 이 노트를 세 layer에 복사해서 layer끼리 비교하면 잘 맞지 않습니다. flat 향수의 "top"에는 모든 노트가 들어 있지만 pyramid 향수의 top에는 몇 개뿐이라, flat 향수는 다른 flat 향수하고만 맞게 됩니다. 그래서 쿼리나 후보 중 하나라도 flat이면, 한쪽에 없는 layer 정보는 빼고 노트 전체 집합끼리 비교합니다.
+
+$$
+\mathrm{score}(q, d) =
+\begin{cases}
+\sum_{i,j} W_{ij}\, \cos\big(\hat q_i, \hat d_j\big) & q, d \text{ 모두 pyramid가 있을 때} \\
+\cos\big(\hat u_q, \hat u_d\big) - \delta & \text{그 밖의 경우}
+\end{cases}
+$$
+
+$\hat u$는 향수의 모든 노트를 IDF로 가중 평균해서 정규화한 벡터이고, $\delta = 0.125$입니다.
+
+**왜 δ가 필요한가요?**
+노트 전체 집합의 평균은 layer 하나의 평균보다 잡음이 적어서, 전체 집합 cosine이 layer별 점수보다 체계적으로 높게 나옵니다. 보정 없이 섞으면 pyramid 쿼리의 상위권을 flat 후보가 차지합니다 (validation Recall@10이 0.080까지 떨어짐). δ는 두 점수를 같은 척도로 맞추는 값으로, train에서 튜닝했습니다 (5.4). Flat 쿼리는 모든 후보가 전체 집합 점수를 쓰므로 δ가 순위에 영향을 주지 않습니다.
+
+### 4.5 행렬곱 한 번으로 검색
 모든 후보의 layer embedding을 미리 계산해 이어 붙여 둡니다: $D \in \mathbb{R}^{N \times 1152}$ (float32로 약 635MB). $W$는 쿼리 쪽에만 곱해지므로 점수는 내적 한 번입니다.
 
 $$
@@ -209,6 +226,7 @@ $$
 - 쿼리 $B$개는 $(B \times 1152) \cdot (1152 \times N)$ 행렬곱 한 번과 `torch.topk`로 처리하고, 쿼리 향수 자신은 결과에서 뺍니다.
 - $D$는 $\hat d_\ell = \mathrm{norm}(S_\ell E)$로 1초 정도면 만들어집니다 ($S_\ell$: 노트 가중치로 이루어진 $N \times V$ sparse 행렬).
 - $W$를 바꿔도 $D$는 다시 만들 필요가 없습니다.
+- 노트 전체 집합 벡터는 두 번째 행렬 $U \in \mathbb{R}^{N \times 384}$로 따로 두고, 배치마다 두 행렬곱을 계산해 flat 여부에 따라 고릅니다.
 - 이 규모에서는 FAISS 같은 approximate nearest neighbor 인덱스가 필요 없습니다. 13만 개 벡터에 대한 exact search도 GPU 행렬곱 한 번이면 됩니다.
 
 ---
@@ -274,12 +292,33 @@ $W$는 대칭이라 자유 원소가 6개입니다.
 ![Initial vs tuned W](docs/figures/layer_weights.png)
 
 - 튜닝한 $W$는 거의 대각 행렬입니다. 같은 layer끼리 비교하는 것이 거의 전부이고, Middle(heart) layer가 가장 중요합니다.
-- $W$ 튜닝이 단일 개선으로는 가장 컸습니다: test에서 Recall@10 +0.012, nDCG@10 +0.012로 둘 다 유의합니다 (6장).
+- $W$ 튜닝으로 test에서 Recall@10 +0.012, nDCG@10 +0.012가 올랐고, 둘 다 유의합니다 (6장).
+
+### 5.4 Flat 향수: δ
+튜닝한 $W$를 고정하고, train Recall@10으로 δ를 grid search했습니다.
+
+| δ | 0 | 0.05 | 0.075 | 0.1 | **0.125** | 0.15 | 0.2 | 0.3 |
+|---|---|---|---|---|---|---|---|---|
+| Train R@10 | 0.083 | 0.115 | 0.126 | 0.134 | **0.136** | 0.135 | 0.132 | 0.130 |
+
+Validation 결과:
+
+| 점수 계산 방식 | R@10 | nDCG@10 | Flat 쿼리 R@10 | Pyramid 쿼리 R@10 |
+|---|---|---|---|---|
+| 모든 쌍을 layer별로 (이전) | 0.114 | 0.109 | 0.057 | 0.128 |
+| 모든 쌍을 노트 전체 집합으로 | **0.130** | 0.119 | 0.123 | **0.132** |
+| 혼합, δ = 0 | 0.080 | 0.069 | 0.123 | 0.070 |
+| **혼합, δ = 0.125 (최종)** | 0.129 | **0.121** | 0.123 | 0.131 |
+
+- Flat 쿼리 성능이 두 배가 되고 (0.057 → 0.123), pyramid 쿼리도 조금 오릅니다.
+- 혼합 방식과 "모든 쌍을 노트 전체 집합으로"의 차이는 유의하지 않습니다 (Recall@10 −0.0005 [−0.004, +0.003], nDCG@10 +0.002 [−0.001, +0.004]). Pyramid 정보가 있는 곳에서는 그것을 쓰는 혼합 방식을 택했습니다.
+- 혼합 방식에서 $W$를 다시 튜닝해도 변화가 없었습니다 (Recall@10 +0.0001).
 
 **최종 설정**
 - 임베딩: `all-MiniLM-L6-v2`, 입력 `"이름: 설명"`
 - 노트 가중치: IDF
 - $W$: 위의 튜닝 결과
+- Flat 향수: 노트 전체 집합으로 비교, δ = 0.125
 
 ---
 
@@ -287,36 +326,38 @@ $W$는 대칭이라 자유 원소가 6개입니다.
 
 Test 세트 6,794개 쿼리, 정답 기준 `agree ≥ 5`로 측정했습니다.
 
-**Word presence**는 파이프라인(IDF 가중치, layer, 튜닝한 $W$)은 같고 노트를 embedding 대신 one-hot 벡터로 바꾼 모델입니다. 즉 layer별 노트 이름 TF-IDF cosine이고, embedding이 더하는 효과만 정확히 떼어 볼 수 있습니다.
+**Word presence**는 파이프라인(IDF 가중치, layer, 튜닝한 $W$, train에서 따로 튜닝한 δ = 0.2의 flat 규칙)은 같고 노트를 embedding 대신 one-hot 벡터로 바꾼 모델입니다. 즉 노트 이름 TF-IDF cosine이고, embedding이 더하는 효과만 정확히 떼어 볼 수 있습니다.
 
 ![Results](docs/figures/results_comparison.png)
 
 | 방법 | R@5 | R@10 | R@20 | nDCG@10 | MRR |
 |---|---|---|---|---|---|
 | Random | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
-| Word presence (TF-IDF one-hot, 튜닝한 W) | 0.101 | **0.123** | 0.142 | 0.109 | 0.146 |
+| Word presence (TF-IDF one-hot, 같은 파이프라인) | 0.108 | 0.128 | 0.149 | 0.116 | 0.154 |
 | 이전 버전 설정: 노트 이름, 손으로 정한 W | 0.090 | 0.106 | 0.121 | 0.099 | 0.138 |
 | + 노트 설명 | 0.092 | 0.108 | 0.124 | 0.101 | 0.139 |
-| **Ours: + 튜닝한 W (최종)** | **0.103** | 0.121 | **0.140** | **0.113** | **0.152** |
+| + 튜닝한 W | 0.103 | 0.121 | 0.140 | 0.113 | 0.152 |
+| **Ours: + flat 향수 처리 (최종)** | **0.114** | **0.134** | **0.156** | **0.124** | **0.165** |
 | *Fragrantica "also liked" (참고)* | *0.108* | *0.125* | *0.138* | *0.145* | *0.182* |
 
 Test 세트 paired bootstrap (우리 모델 − 비교 대상, 95% CI):
 
 | 비교 대상 | Recall@10 | nDCG@10 |
 |---|---|---|
-| Word presence | −0.002 [−0.006, +0.002] | **+0.004 [+0.001, +0.007]** |
-| 이전 버전 설정 | **+0.015 [+0.011, +0.018]** | **+0.014 [+0.011, +0.017]** |
+| Word presence | **+0.006 [+0.002, +0.009]** | **+0.009 [+0.006, +0.012]** |
+| Flat 처리 전 (+ 튜닝한 W) | **+0.013 [+0.010, +0.016]** | **+0.011 [+0.009, +0.014]** |
+| 이전 버전 설정 | **+0.028 [+0.024, +0.032]** | **+0.025 [+0.022, +0.029]** |
 
-- **Word presence 대비**: 상위 10개 안에 찾는 정답 수는 같지만, 정답을 더 위에 놓습니다 (nDCG@10, MRR).
-- **이전 버전 대비**: 같은 embedding 아이디어에 노트 이름과 손으로 정한 W를 쓴 설정을 새 데이터에서 돌린 것과 비교하면, 최종 모델은 Recall@10이 +14% 높습니다.
-- **Fragrantica 자체 추천**은 예상대로 nDCG/MRR이 가장 높습니다. 노트뿐 아니라 사용자 탐색 기록, 브랜드, 성별까지 쓰기 때문입니다. 상위 10개의 브랜드 일치율이 16%로, 우리 모델(4%)보다 훨씬 높습니다. Recall@20에서는 노트만 쓰는 우리 모델과 비슷합니다.
+- **Word presence 대비**: 상위 10개 안에서 정답을 더 많이 찾고, 더 위에 놓습니다. 두 차이 모두 유의합니다.
+- **이전 버전 대비**: 같은 embedding 아이디어에 노트 이름과 손으로 정한 W를 쓴 설정을 새 데이터에서 돌린 것과 비교하면, 최종 모델은 Recall@10이 +26% 높습니다 (0.106 → 0.134). 노트 설명이 +0.002, W 튜닝이 +0.012, flat 향수 처리가 +0.013을 더했습니다.
+- **Fragrantica 자체 추천**은 예상대로 nDCG/MRR이 가장 높습니다. 노트뿐 아니라 사용자 탐색 기록, 브랜드, 성별까지 쓰기 때문입니다. 상위 10개의 브랜드 일치율이 16%로, 우리 모델(4%)보다 훨씬 높습니다. Recall@10과 Recall@20에서는 노트만 쓰는 우리 모델이 더 높습니다 (0.134 vs 0.125, 0.156 vs 0.138).
 
 ### Flat vs. pyramid 향수
 ![Flat vs pyramid](docs/figures/flat_vs_pyramid.png)
 
-Word presence와 전체 성능이 비슷한 건, 서로 반대인 두 효과가 섞여 있기 때문입니다.
-- Pyramid가 있는 쿼리 5,412개에서는 embedding이 낫습니다 (Recall@10 0.135 vs 0.129).
-- Layer 없이 노트만 나열된 flat 쿼리 1,382개에서는 훨씬 나쁩니다 (0.066 vs 0.100). 자세한 내용은 [8장](#8-한계)을 참고하세요.
+- Flat 향수 처리 전에는 layer 없이 노트만 나열된 flat 쿼리 1,382개가 약점이었습니다 (Recall@10 0.066).
+- 노트 전체 집합으로 비교하면서 0.121로 올라 word presence(0.119)와 비슷해졌습니다.
+- Pyramid 쿼리 5,412개도 조금 올랐습니다 (0.135 → 0.137, word presence 0.130).
 
 ---
 
@@ -330,14 +371,14 @@ Test 세트에서, 최종 모델은 상위 10위 안에 놓았지만 word presen
 | Versus Pour Homme (In The Box) → **Versace Pour Homme** (209) | #10 | >100 | `blue hyacinth`/`hyacinth`, `crystal amber`/`amber`, `may rose`/`rose de mai`, `sage`/`clary sage`, `sicilian lemon`/`lemon` |
 | Opium EDP 2009 → **Opium EDT 2009** (147) | #5 | >100 | `myrhh` (데이터 오타)/`myrrh`, `vanille`/`vanilla`, `mandarin orange`/`tangerine` |
 | XS (2018) → **XS** (Rabanne) (190) | #3 | >100 | `geranium`/`bourbon geranium`, `juniper berries`/`juniper` |
-| 9pm (Afnan) → **Odyssey Spectra** (Armaf) (141) | #9 | #36 | `wild lavender`/`lavender`, `lily-of-the-valley`/`lily of the valley` |
+| Van Py Rhum (Lorenzo Pazzaglia) → **X Xandal** (Aromatix × French Avenue) (174) | #4 | >100 | `agarwood (oud)`/`agarwood`, `tahitian vanilla`/`vanilla absolute` |
 
-Test 세트의 모든 정답을 세어 보면, 두 모델이 서로 다르게 맞히는 경우는 일부입니다. Embedding이 추가로 맞히는 정답은 pyramid 향수에서, word presence가 추가로 맞히는 정답은 주로 flat 향수에서 나옵니다.
+Test 세트의 모든 정답을 세어 보면, 두 모델이 서로 다르게 맞히는 경우는 일부입니다. 상대가 놓친 정답을 찾는 경우는 pyramid 쿼리와 flat 쿼리 모두에서 embedding 쪽이 더 많습니다.
 
 | 상위 10개 안의 정답 | 둘 다 | Ours만 | Word presence만 |
 |---|---|---|---|
-| Pyramid 쿼리 | 1,443 | **302** | 216 |
-| Flat 쿼리 | 159 | 45 | **86** |
+| Pyramid 쿼리 | 1,466 | **302** | 221 |
+| Flat 쿼리 | 253 | **67** | 50 |
 
 ### 추천 목록 예시
 **Creed Aventus** (`bergamot, black currant, apple, pineapple, patchouli, birch, musk, oakmoss, ambroxan, …`)의 상위 5개:
@@ -356,11 +397,7 @@ Test 세트의 모든 정답을 세어 보면, 두 모델이 서로 다르게 �
 
 ## 8. 한계
 
-- **Flat 향수**: 향수의 28%는 pyramid 없이 노트만 나열되어 있어서 세 layer에 똑같이 복사됩니다.
-  - 거의 대각인 $W$로 layer끼리 비교하면, 이런 향수는 pyramid 향수보다 다른 flat 향수와 훨씬 잘 맞습니다. flat 향수의 "top"에는 모든 노트가 들어 있지만, pyramid 향수의 top에는 몇 개뿐이기 때문입니다.
-  - 그래서 flat 쿼리의 상위 10개는 대부분 flat 향수이고, 결과가 $W$와 상관없이 같습니다.
-  - Word presence는 정확히 겹치는 노트만 점수를 받기 때문에 영향을 덜 받습니다.
-  - Layer 구분 없이 비교하면 해결되지만, 이 구조 변경은 앞으로의 과제로 남겨 둡니다.
+- **Flat 향수**(28%)에는 layer 정보가 없어서, 이 향수들에 대해서는 모델이 노트 전체 집합 embedding일 뿐입니다. Pyramid 향수와 짝을 이룰 때는 보정값 δ 하나에 기대어 layer별 점수와 한 순위 안에서 비교됩니다.
 - **노트는 향 그 자체가 아닙니다**: 회원들은 향을 맡고 투표하지만, 모델이 보는 노트 목록은 브랜드가 마케팅용으로 쓴 것입니다. 노트 외의 정보도 쓰는 Fragrantica 자체 추천조차 Recall@10이 0.125에 그칩니다. 이 정답 데이터에서는 어떤 방법이든 절대 점수가 낮습니다.
 - **정답이 클론 쪽으로 치우쳐 있습니다**: 투표된 정답 중 상당수는 원본의 노트 목록을 거의 그대로 베낀 dupe나 flanker입니다. 이런 쌍은 노트 이름이 정확히 겹치는 것만으로도 찾을 수 있어서, 노트 의미를 더 잘 이해해도 지표에는 잘 드러나지 않습니다. 또 인기 향수일수록 투표가 많아 nDCG에서 비중이 큽니다.
 - **LLM이 쓴 설명**: 노트 설명 2,589개는 전문가가 아니라 LLM이 생성했고, 모두 사람이 검수하지는 않았습니다. 212개 노트는 설명이 없습니다.
@@ -375,9 +412,9 @@ src/
   perfume_recommendation.py      최종 추천 모델 (Recommender 클래스, 데모)
   preprocess.py                  Kaggle 원본 → data/*.csv
   functions.py                   노트 파싱, 향수 단위 IDF, 노트 가중치, 노트 embedding 로더 (get_E)
-  optimize.py                    5.2–5.3 grid search + Nelder-Mead, `idf_only` 모드
+  optimize.py                    5.2–5.4 grid search + Nelder-Mead, `idf_only`, `flat`, `flat_w`, `flat_onehot` 모드
   evaluate.py                    지표, 데이터 분할, baseline; `baselines` 모드 = 6장
-  v1/                            이전 버전: 추천 모델, 평가, W 튜닝, 노트북 (이전 데이터셋)
+  v1(previous version)/          이전 버전: 추천 모델, 평가, W 튜닝, 노트북 (이전 데이터셋)
 data/
   note_descriptions.csv          LLM 노트 설명 (커밋됨)
   fra_cleaned.csv                v1이 쓰는 이전 데이터셋
@@ -392,13 +429,16 @@ python src/preprocess.py                 # 몇 초
 python src/evaluate.py                   # 5단계 baseline, 약 1분
 python src/optimize.py                   # 5.2–5.3 회원 투표 사용, 약 15분
 python src/optimize.py idf_only          # 5.2–5.3 IDF만 사용 (최종 W), 약 12분
+python src/optimize.py flat              # 5.4 flat 향수 δ, 약 4분
+python src/optimize.py flat_w            # 5.4 혼합 vs 노트 전체 집합, W 재튜닝, 약 15분
+python src/optimize.py flat_onehot       # word presence 기준선의 δ, 약 5분
 python src/evaluate.py baselines         # 6장, 약 2분
 ```
 
 > `cache/`에는 노트 embedding이 저장됩니다. `data/note_descriptions.csv`를 수정했다면 `cache/emb_*desc*.pt`를 지우고 다시 실행하세요.
 
 ### 이전 버전
-- **v1**(`src/v1/`)은 2024년 [Fragrantica 데이터셋](https://www.kaggle.com/datasets/olgagmiufana1/fragrantica-com-fragrance-dataset)(향수 24,063개)을 썼습니다.
+- **v1**(`src/v1(previous version)/`)은 2024년 [Fragrantica 데이터셋](https://www.kaggle.com/datasets/olgagmiufana1/fragrantica-com-fragrance-dataset)(향수 24,063개)을 썼습니다.
 - 노트 이름만 사용했고, $W$는 손으로 정했으며, 평가는 self-retrieval Hit@1로 했습니다.
 - v1의 설계가 6장의 "이전 버전 설정" 행이고, 이 README는 **v2**를 설명합니다.
 

@@ -2,15 +2,15 @@
 <html>
 <head>
 <meta charset="utf-8">
-<title>Perfume Recommender v2</title>
-<!-- 렌더링: docs/model_architecture.png (headless Chrome 스크린샷, README 참고) -->
+<title>Perfume Recommendation with Note Embeddings</title>
+<!-- 렌더링: docs/model_architecture.png (headless Chrome 스크린샷). 그림에는 핵심만, 설명은 README에 -->
 <script>
   MathJax = { tex: { inlineMath: [["\\(", "\\)"]] }, svg: { fontCache: "global" } };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js"></script>
 <style>
   body { margin: 0; background: #fff; }
-  #fig { position: relative; width: 1440px; height: 690px; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1f2328; }
+  #fig { position: relative; width: 1440px; height: 550px; font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; color: #1f2328; }
   #fig svg.bg { position: absolute; left: 0; top: 0; }
   .eq { position: absolute; transform: translateY(-50%); white-space: nowrap; font-size: 12px; color: #57606a; }
   .eq.c { transform: translate(-50%, -50%); }
@@ -20,7 +20,7 @@
 </head>
 <body>
 <div id="fig">
-<svg class="bg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 690" width="1440" height="690" fill="#1f2328">
+<svg class="bg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 550" width="1440" height="550" fill="#1f2328">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#57606a"/>
@@ -40,7 +40,7 @@
     .base { fill: #efe9fb; stroke: #8064c4; stroke-width: 1.5; }
   </style>
 
-  <text x="30" y="42" font-size="20" font-weight="700">SBERT Perfume Recommender v2: model architecture</text>
+  <text x="30" y="42" font-size="20" font-weight="700">Perfume Recommendation with Note Embeddings</text>
 
   <!-- 1. Input -->
   <text x="30" y="90" class="h">1. Input notes</text>
@@ -53,15 +53,12 @@
   <rect x="30" y="280" width="210" height="70" rx="8" class="base"/>
   <text x="44" y="308" class="t">Base</text>
   <text x="44" y="330" class="ms">honey | amber | cedar …</text>
-  <text x="30" y="375" class="s">note names only (member votes unused)</text>
-  <text x="30" y="393" class="s">flat list → copied to all 3 layers</text>
-  <text x="30" y="411" class="s">empty layer → union of the other layers</text>
 
-  <rect x="30" y="430" width="210" height="95" rx="8" class="box"/>
-  <text x="44" y="456" class="t">Data</text>
-  <text x="44" y="477" class="s">137,668 Fragrantica perfumes,</text>
-  <text x="44" y="494" class="s">identified by Fragrantica id</text>
-  <text x="44" y="513" class="s">query: unknown notes dropped</text>
+  <rect x="30" y="400" width="210" height="95" rx="8" class="box"/>
+  <text x="44" y="426" class="t">Data</text>
+  <text x="44" y="447" class="s">137,668 Fragrantica perfumes,</text>
+  <text x="44" y="464" class="s">identified by Fragrantica id</text>
+  <text x="44" y="483" class="s">query: unknown notes dropped</text>
 
   <!-- 2. Note encoding -->
   <path d="M240,145 H276" class="ln"/>
@@ -69,11 +66,9 @@
   <path d="M240,315 H276" class="ln"/>
   <text x="280" y="90" class="h">2. Note encoding</text>
   <rect x="280" y="110" width="180" height="240" rx="8" fill="#ddf4ff" stroke="#0969da" stroke-width="1.5"/>
-  <text x="370" y="190" class="t" text-anchor="middle" font-size="18">SBERT</text>
-  <text x="370" y="212" class="m" text-anchor="middle">all-MiniLM-L6-v2</text>
-  <text x="370" y="240" class="m" text-anchor="middle">"note: description"</text>
-  <text x="370" y="258" class="s" text-anchor="middle">LLM-written smell description</text>
-  <text x="370" y="336" class="s" text-anchor="middle">encoded once, cached</text>
+  <text x="370" y="196" class="t" text-anchor="middle" font-size="18">SBERT</text>
+  <text x="370" y="218" class="m" text-anchor="middle">all-MiniLM-L6-v2</text>
+  <text x="370" y="248" class="m" text-anchor="middle">"note: description"</text>
 
   <!-- 3. Weighted layer mean -->
   <path d="M460,145 H496" class="ln"/>
@@ -83,7 +78,7 @@
   <rect x="500" y="110" width="230" height="70" rx="8" class="top"/>
   <rect x="500" y="195" width="230" height="70" rx="8" class="mid"/>
   <rect x="500" y="280" width="230" height="70" rx="8" class="base"/>
-  <rect x="500" y="400" width="230" height="195" rx="8" class="box"/>
+  <rect x="500" y="400" width="230" height="120" rx="8" class="box"/>
   <path d="M615,400 V354" class="ln" stroke-dasharray="4 3"/>
 
   <!-- 4. Query vector -->
@@ -92,7 +87,7 @@
   <path d="M730,315 H766" class="ln"/>
   <text x="770" y="90" class="h">4. Query vector</text>
   <rect x="770" y="110" width="270" height="240" rx="8" class="box"/>
-  <text x="905" y="132" class="s" text-anchor="middle">layer weights W (tuned)</text>
+  <text x="905" y="132" class="s" text-anchor="middle">layer weights W</text>
   <g stroke="#d0d7de">
     <rect x="865" y="158" width="40" height="40" fill="#7fb3ec"/><rect x="905" y="158" width="40" height="40" fill="#eef4fc"/><rect x="945" y="158" width="40" height="40" fill="#f6f8fa"/>
     <rect x="865" y="198" width="40" height="40" fill="#eef4fc"/><rect x="905" y="198" width="40" height="40" fill="#5f9fe6"/><rect x="945" y="198" width="40" height="40" fill="#eef4fc"/>
@@ -105,40 +100,30 @@
   </g>
 
   <!-- Perfume DB -->
-  <path d="M730,485 H766" class="ln"/>
-  <text x="748" y="475" class="s" text-anchor="middle">all N</text>
-  <rect x="770" y="400" width="270" height="195" rx="8" class="box"/>
+  <path d="M730,460 H766" class="ln"/>
+  <rect x="770" y="400" width="270" height="120" rx="8" class="box"/>
   <text x="784" y="425" class="t">Perfume DB</text>
   <rect x="784" y="440" width="80" height="22" class="top"/>
   <rect x="864" y="440" width="80" height="22" class="mid"/>
   <rect x="944" y="440" width="80" height="22" class="base"/>
-  <text x="784" y="507" class="s">steps 2–3 for every perfume, ~635 MB</text>
 
   <!-- 5. Score & rank -->
   <path d="M1040,230 H1076" class="ln"/>
   <text x="1080" y="90" class="h">5. Score &amp; rank</text>
   <rect x="1080" y="110" width="330" height="240" rx="8" class="box"/>
-  <text x="1245" y="210" class="s" text-anchor="middle">same score as v1's 3×3 layer-wise cosine map,</text>
-  <text x="1245" y="228" class="s" text-anchor="middle">computed as a single dot product</text>
-  <text x="1245" y="282" class="s" text-anchor="middle">B queries at once on GPU (MPS),</text>
-  <text x="1245" y="300" class="s" text-anchor="middle">512 queries ≈ 0.25 s</text>
+  <text x="1245" y="252" class="s" text-anchor="middle">if the query or the candidate is flat:</text>
 
-  <path d="M1040,485 H1110 V354" class="ln"/>
+  <path d="M1040,460 H1110 V354" class="ln"/>
 
-  <rect x="1160" y="400" width="250" height="90" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
+  <rect x="1160" y="400" width="250" height="70" rx="8" fill="#dafbe1" stroke="#1a7f37" stroke-width="1.5"/>
   <text x="1285" y="430" class="t" text-anchor="middle">Top-k perfumes</text>
   <text x="1285" y="452" class="m" text-anchor="middle">torch.topk(scores, k)</text>
-  <text x="1285" y="472" class="s" text-anchor="middle">→ Fragrantica ids (name @ brand)</text>
   <path d="M1285,350 V396" class="ln"/>
-
-  <text x="30" y="655" class="s">Tuned W is nearly diagonal: layers are compared mostly with the same layer (Middle↔Middle weighted most).</text>
-  <text x="30" y="674" class="s">Test split vs. Fragrantica “Smells like this” votes: Recall@10 0.121, nDCG@10 0.113 (Fragrantica’s own “also liked” list: 0.125 / 0.145).</text>
 </svg>
 
 <!-- 수식 (TeX). 좌표: left = x, top = 줄 가운데 y. class c = 가운데 정렬 -->
 <!-- 2 -->
-<div class="eq c k" style="left:370px;top:282px">\(E \in \mathbb{R}^{V \times 384}\)</div>
-<div class="eq c" style="left:370px;top:308px">\(V = 2{,}589\) notes</div>
+<div class="eq c k" style="left:370px;top:290px">\(E \in \mathbb{R}^{V \times 384}\)</div>
 <!-- 3 -->
 <div class="eq k" style="left:514px;top:133px">\(\hat{q}_{\mathrm{top}}\)</div>
 <div class="eq" style="left:514px;top:159px">\(\mathrm{norm}\big(\sum_n \hat{w}_n E_n\big) \in \mathbb{R}^{384}\)</div>
@@ -146,32 +131,22 @@
 <div class="eq" style="left:514px;top:244px">\(\mathrm{norm}\big(\sum_n \hat{w}_n E_n\big) \in \mathbb{R}^{384}\)</div>
 <div class="eq k" style="left:514px;top:303px">\(\hat{q}_{\mathrm{base}}\)</div>
 <div class="eq" style="left:514px;top:329px">\(\mathrm{norm}\big(\sum_n \hat{w}_n E_n\big) \in \mathbb{R}^{384}\)</div>
-<div class="eq k" style="left:514px;top:436px">\(w_n = \mathrm{IDF}_n = \log \dfrac{N}{\mathrm{df}_n} + 1\)</div>
-<div class="eq" style="left:514px;top:476px">\(\mathrm{df}_n\): # perfumes with note \(n\)</div>
-<div class="eq" style="left:514px;top:498px">\(N = 137{,}668\) perfumes</div>
-<div class="eq" style="left:514px;top:520px">rare notes weigh more;</div>
-<div class="eq" style="left:514px;top:540px">member vote weights are not used</div>
-<div class="eq" style="left:514px;top:562px">\(\hat{w}_n = w_n / \sum w\) within each layer</div>
+<div class="eq k" style="left:514px;top:438px">\(w_n = \mathrm{IDF}_n = \log \dfrac{N}{\mathrm{df}_n} + 1\)</div>
+<div class="eq k" style="left:514px;top:488px">\(\hat{w}_n = w_n / \sum_{\text{layer}} w\)</div>
 <!-- 4 -->
 <div class="eq c" style="left:925px;top:149px">\(j \rightarrow\)</div>
 <div class="eq c" style="left:850px;top:218px">\(i \downarrow\)</div>
-<div class="eq c k" style="left:905px;top:299px">\(Q'_j = \sum_i W_{ij}\, \hat{q}_i\)</div>
-<div class="eq c" style="left:905px;top:322px">concatenated: \(Q' \in \mathbb{R}^{1152}\), \(\sum_{ij} W_{ij} = 1\)</div>
-<div class="eq c" style="left:905px;top:340px">\(W\) only touches the query side</div>
+<div class="eq c k" style="left:905px;top:312px">\(Q'_j = \sum_i W_{ij}\, \hat{q}_i\)</div>
 <div class="eq c k" style="left:824px;top:451px">\(\hat{d}_{\mathrm{top}}\)</div>
 <div class="eq c k" style="left:904px;top:451px">\(\hat{d}_{\mathrm{middle}}\)</div>
 <div class="eq c k" style="left:984px;top:451px">\(\hat{d}_{\mathrm{base}}\)</div>
-<div class="eq k" style="left:870px;top:420px">\(D\)</div>
-<div class="eq k" style="left:784px;top:485px">\(D \in \mathbb{R}^{N \times 1152},\ N = 137{,}668\)</div>
-<div class="eq" style="left:784px;top:535px">rebuilt only when \(E\) changes (~1 s):</div>
-<div class="eq" style="left:784px;top:562px">\(\hat{d}_\ell = \mathrm{norm}(S_\ell E)\), sparse \(S_\ell \in \mathbb{R}^{N \times V}\)</div>
+<div class="eq k" style="left:880px;top:420px">\(D\)</div>
+<div class="eq k" style="left:784px;top:484px">\(D \in \mathbb{R}^{N \times 1152}\)</div>
+<div class="eq k" style="left:784px;top:504px">\(\hat u \in \mathbb{R}^{N \times 384}\) (whole note set)</div>
 <!-- 5 -->
-<div class="eq c big" style="left:1245px;top:146px">\(\mathrm{scores} = Q' D^{\top}\)</div>
-<div class="eq c k" style="left:1245px;top:178px">\(= \sum_{i,j} W_{ij} \cos(\hat{q}_i, \hat{d}_j)\)</div>
-<div class="eq c k" style="left:1245px;top:258px">\((B \times 1152) \cdot (1152 \times N)\)</div>
-<div class="eq c" style="left:1245px;top:326px">query perfume itself masked (\(-\infty\))</div>
-<!-- footer -->
-<div class="eq" style="left:30px;top:630px">Final settings: note text “name: LLM description”, IDF weights only, \(W\) tuned on the train split for Recall@10 (“Smells like this”, up ≥ 5).</div>
+<div class="eq c big" style="left:1245px;top:162px">\(\mathrm{scores} = Q' D^{\top}\)</div>
+<div class="eq c k" style="left:1245px;top:196px">\(= \sum_{i,j} W_{ij} \cos(\hat{q}_i, \hat{d}_j)\)</div>
+<div class="eq c k" style="left:1245px;top:280px">\(\cos(\hat u_q, \hat u_d) - \delta\)</div>
 </div>
 </body>
 </html>

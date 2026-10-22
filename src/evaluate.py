@@ -5,6 +5,7 @@ import sys
 import numpy as np
 import pandas as pd
 import torch
+from functions import merge_notes
 
 K = 100  # 순위 목록 길이. MRR은 MRR@100
 SPLITS = {"train": 0.7, "val": 0.15, "test": 0.15}
@@ -38,11 +39,10 @@ def model_lists(rec, query_rows, batch=512):
     lists, self_hit = [], []
     for i in range(0, len(query_rows), batch):
         rows = torch.tensor(query_rows[i:i + batch], device=rec.device)
-        q = rec.D[rows]
-        top1, _ = rec.search(q, 1)
-        self_score = (rec.query_vectors(q) * rec.D[rows]).sum(1).cpu()
-        self_hit += (self_score >= top1[:, 0] - 1e-5).tolist()
-        lists += rec.search(q, K, exclude_rows=rows)[1].tolist()
+        scores = rec.row_scores(rows)
+        self_score = scores[torch.arange(len(rows)), rows]
+        self_hit += (self_score >= scores.max(1).values - 1e-5).cpu().tolist()
+        lists += rec.search_rows(rows, K)[1].tolist()
     return lists, np.mean(self_hit)
 
 
@@ -73,20 +73,26 @@ def fair_model_lists(rec, query_rows, batch=512):
     lists = []
     for i in range(0, len(query_rows), batch):
         rows = np.array(query_rows[i:i + batch])
-        q = rec.D[torch.tensor(rows, device=rec.device)]
-        lists += top_rows((rec.query_vectors(q) @ rec.D.T).cpu().numpy(), rows)
+        lists += top_rows(rec.row_scores(torch.tensor(rows, device=rec.device)).cpu().numpy(), rows)
     return lists
 
 
-def onehot_lists(rec, W, query_rows, batch=256):
-    """단어 유무 기준선 1: 노트 임베딩 대신 원-핫 (E = 단위행렬). IDF, 레이어, W는 rec과 같다.
-    점수 = Σ_ij W_ij cos(x_i, x_j), x_l = 레이어 l의 IDF 가중 노트 벡터"""
-    X = [S.multiply(1 / np.sqrt(S.multiply(S).sum(1))).tocsr() for S in rec.weight_matrices(rec.layers, 1.)]
+def onehot_lists(rec, W, query_rows, delta=None, batch=256):
+    """단어 유무 기준선 1: 노트 임베딩 대신 원-핫 (E = 단위행렬). IDF, 레이어, W, flat 규칙은 rec과 같다.
+    점수 = Σ_ij W_ij cos(x_i, x_j), x_l = 레이어 l의 IDF 가중 노트 벡터.
+    delta가 있으면 flat 향수가 낀 쌍은 노트 전체 집합 벡터의 cosine − delta"""
+    unit_rows = lambda S: S.multiply(1 / np.sqrt(S.multiply(S).sum(1))).tocsr()
+    X = [unit_rows(S) for S in rec.weight_matrices(rec.layers, 1.)]
+    Xu = unit_rows(rec.weight_matrices([[merge_notes(*p)] for p in rec.layers], 1.)[0])
+    flat = rec.flat.cpu().numpy()
     W = np.asarray(W) / np.sum(W)
     lists = []
     for i in range(0, len(query_rows), batch):
         rows = np.array(query_rows[i:i + batch])
         scores = sum((sum(W[a, b] * X[a][rows] for a in range(3)) @ X[b].T).toarray() for b in range(3))
+        if delta is not None:
+            union = (Xu[rows] @ Xu.T).toarray() - delta
+            scores = np.where(flat[rows][:, None] | flat[None, :], union, scores)
         lists += top_rows(scores.astype(np.float32), rows)
     return lists
 
@@ -101,6 +107,14 @@ def jaccard_lists(rec, query_rows, batch=256):
         inter = (X[rows] @ X.T).toarray()
         lists += top_rows(inter / (size[rows, None] + size[None, :] - inter), rows)
     return lists
+
+
+def paired_bootstrap(a, b, n=2000, seed=0):
+    """쿼리별 지표 a, b (같은 쿼리 순서) -> 평균 차이 a − b와 95% 구간"""
+    diff = np.asarray(a) - np.asarray(b)
+    idx = np.random.default_rng(seed).integers(0, len(diff), (n, len(diff)))
+    bs = diff[idx].mean(1)
+    return float(diff.mean()), float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))
 
 
 def score_query(ranked, truth):
@@ -146,7 +160,7 @@ if __name__ == "__main__":
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     model = SentenceTransformer("all-MiniLM-L6-v2", device=str(device))
-    rec = Recommender(pd.read_csv("data/perfumes_clean.csv"), model, device, alpha_min=.5, layer_weights=INITIAL_W)  # 5단계 설정 그대로
+    rec = Recommender(pd.read_csv("data/perfumes_clean.csv"), model, device, alpha_min=.5, layer_weights=INITIAL_W, delta=None)  # 5단계 설정 그대로
     IDF_weight = rec.IDF_weight
     pd.set_option("display.precision", 4, "display.width", 200)
 
@@ -155,25 +169,30 @@ if __name__ == "__main__":
         import pickle
         import time
         from functions import get_E, note_texts
-        from perfume_recommendation import FINAL_W
+        import json
+        from perfume_recommendation import FINAL_W, FINAL_DELTA
+        onehot_delta = json.load(open("results/flat_onehot.json"))["best delta"]  # optimize.py flat_onehot
         E = {i: get_E("minilm", i, note_texts(rec.vocab, i), device) for i in ("name", "name+desc")}
         rec = Recommender(rec.dataset, None, device, E=E["name+desc"])
         truth = load_truth(rec, 5, "test")
         query_rows = list(truth)
         print(f"test, up ≥ 5: {len(query_rows)} queries")
 
-        def ours(input_type, W):
+        def ours(input_type, W, delta):
             rec.E = E[input_type]
             rec.build_DB(1.)
             rec.set_layer_weights(W)
+            rec.delta = delta
             return fair_model_lists(rec, query_rows)
 
         methods = {"random": lambda: random_lists(len(rec.dataset), query_rows),
                    "Jaccard (note sets)": lambda: jaccard_lists(rec, query_rows),
                    "TF-IDF one-hot, final W": lambda: onehot_lists(rec, FINAL_W, query_rows),
-                   "MiniLM name, initial W (v1 setup on new data)": lambda: ours("name", INITIAL_W),
-                   "MiniLM name+desc, initial W": lambda: ours("name+desc", INITIAL_W),
-                   "ours (MiniLM name+desc, final W)": lambda: ours("name+desc", FINAL_W),
+                   "TF-IDF one-hot, final W, flat rule": lambda: onehot_lists(rec, FINAL_W, query_rows, delta=onehot_delta),
+                   "MiniLM name, initial W (v1 setup on new data)": lambda: ours("name", INITIAL_W, None),
+                   "MiniLM name+desc, initial W": lambda: ours("name+desc", INITIAL_W, None),
+                   "MiniLM name+desc, final W (layered only)": lambda: ours("name+desc", FINAL_W, None),
+                   "ours (MiniLM name+desc, final W, flat rule)": lambda: ours("name+desc", FINAL_W, FINAL_DELTA),
                    "Fragrantica also_liked (reference)": lambda: also_liked_lists(rec, query_rows)}
         rows, per_query, all_lists = [], {}, {}
         for name, make in methods.items():
@@ -188,12 +207,12 @@ if __name__ == "__main__":
         pd.DataFrame(rows).to_csv("results/final_comparison_test.csv", index=False)
         with open("cache/final_comparison_lists.pkl", "wb") as f:
             pickle.dump({"query_rows": query_rows, "lists": all_lists}, f)
-        idx = np.random.default_rng(0).integers(0, len(query_rows), (2000, len(query_rows)))
-        for base in ("TF-IDF one-hot, final W", "MiniLM name, initial W (v1 setup on new data)", "MiniLM name+desc, initial W", "Jaccard (note sets)"):
-            diff = per_query["ours (MiniLM name+desc, final W)"] - per_query[base]
+        ours_name = "ours (MiniLM name+desc, final W, flat rule)"
+        for base in ("TF-IDF one-hot, final W, flat rule", "TF-IDF one-hot, final W", "MiniLM name, initial W (v1 setup on new data)",
+                     "MiniLM name+desc, final W (layered only)", "Jaccard (note sets)"):
             for j, m in enumerate(("R@10", "nDCG@10")):
-                bs = diff[:, j][idx].mean(1)
-                print(f"ours − {base}, test {m}: {diff[:, j].mean():+.4f}  95% CI [{np.percentile(bs, 2.5):+.4f}, {np.percentile(bs, 97.5):+.4f}]")
+                d = paired_bootstrap(per_query[ours_name][:, j], per_query[base][:, j])
+                print(f"ours − {base}, test {m}: {d[0]:+.4f}  95% CI [{d[1]:+.4f}, {d[2]:+.4f}]")
         sys.exit()
 
     for min_up in (5, 10):

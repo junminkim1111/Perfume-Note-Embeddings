@@ -37,12 +37,13 @@ The simplest way to recommend a perfume from its notes is **word presence**: tre
 - **Similar spelling, different smell.** `orange` (citrus) and `orange blossom` (white floral) should *not* be close just because they share a word.
 
 ### What this project does
-Each note is turned into a vector by a sentence-embedding model, so similar-smelling notes end up close together even when their names differ. A perfume is then represented layer by layer as a weighted average of its note vectors, and perfumes are compared layer against layer.
+Each note is turned into a vector by a sentence-embedding model, so similar-smelling notes end up close together even when their names differ. A perfume is then represented layer by layer as a weighted average of its note vectors, and perfumes are compared layer against layer. Perfumes that list their notes without a pyramid are compared on their whole note set instead.
 
 1. **Note encoding** – every distinct note is encoded once by `all-MiniLM-L6-v2` from the text `"<note>: <short smell description>"`. The descriptions (one per note) were written by an LLM, because the bare note name gives the model too little to work with.
 2. **Layer embedding** – for each of Top / Middle / Base, an IDF-weighted average of the note vectors, so rare, distinctive notes count more than ubiquitous ones like musk.
 3. **Layer-wise similarity** – a learned 3×3 matrix `W` weights the cosine similarity between every query layer and every candidate layer.
-4. **Search** – the whole score collapses into one dot product per candidate, so the database is a single `137,668 × 1,152` matrix.
+4. **Flat perfumes** – if either perfume lists its notes without a pyramid, the two are compared on their whole note sets, minus a tuned offset δ that puts both kinds of score on one scale.
+5. **Search** – the layer-wise score collapses into one dot product per candidate, so the database is a `137,668 × 1,152` matrix (plus a `137,668 × 384` matrix of whole-note-set vectors).
 
 Nearest notes in the final embedding space (cosine similarity):
 
@@ -55,7 +56,7 @@ Nearest notes in the final embedding space (cosine similarity):
 | hedione | paradisone (0.73), wild jasmine (0.70), jasmine (0.69), indonesian jasmine (0.69) |
 | orange blossom | citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83) |
 
-**Result in one line:** on held-out "Smells like this" votes, the final model has the same Recall@10 as the word-presence model with the identical pipeline (0.121 vs 0.123, not significant) and a significantly better ranking (nDCG@10 0.113 vs 0.109, MRR 0.152 vs 0.146). It is clearly better on perfumes with a full Top/Middle/Base pyramid and clearly worse on perfumes that only list a flat set of notes ([§6](#6-results), [§8](#8-limitations)).
+**Result in one line:** on held-out "Smells like this" votes, the final model beats a word-presence model with the identical pipeline on both Recall@10 (0.134 vs 0.128) and nDCG@10 (0.124 vs 0.116), both significant, and improves Recall@10 by 26% over the previous version ([§6](#6-results)).
 
 ---
 
@@ -64,8 +65,8 @@ Nearest notes in the final embedding space (cosine similarity):
 Requires Python 3.11+ (tested on 3.13; exact package versions are pinned in `requirements.txt`). A GPU is optional; Apple-silicon (MPS) and CUDA are picked up automatically.
 
 ```bash
-git clone https://github.com/junminkim1111/Perfume-Recomendation-with-SBERT.git
-cd Perfume-Recomendation-with-SBERT
+git clone https://github.com/junminkim1111/perfume-note-embeddings.git
+cd perfume-note-embeddings
 pip install -r requirements.txt
 ```
 
@@ -126,7 +127,7 @@ Each note comes with a 0–100 weight from member votes ("how prominent is this 
 | Notes as listed on Fragrantica | Perfumes | Conversion |
 |---|---|---|
 | Full pyramid (Top / Middle / Base) | 98,371 | kept as is |
-| Flat list only (no pyramid) | 38,637 (27.6%) | the same notes are copied into all three layers |
+| Flat list only (no pyramid) | 38,637 (27.6%) | the same notes are copied into all three layers; scoring uses the whole note set ([§4.4](#44-flat-perfumes)) |
 | Pyramid with an empty layer | 660 | the empty layer gets the union of the other layers |
 | No notes | 2,560 | dropped |
 
@@ -184,14 +185,29 @@ $$
 
 *Why a matrix and not just the diagonal?* The off-diagonal terms let a note that one perfume lists as a heart note match the same note listed as a base note in another, which is common because brands assign layers inconsistently. The tuned $W$ (§5.3) turned out to be nearly diagonal, with Middle↔Middle weighted most.
 
-### 4.4 Search as one matrix product
+### 4.4 Flat perfumes
+28% of perfumes list their notes without a pyramid. Copying those notes into all three layers and comparing layer by layer does not work: a flat perfume's "top" holds every note while a pyramid's top holds only a few, so flat perfumes end up matching only each other. So whenever the query or the candidate is flat, the layer information that one side lacks is left out, and the two whole note sets are compared:
+
+$$
+\mathrm{score}(q, d) =
+\begin{cases}
+\sum_{i,j} W_{ij}\, \cos\big(\hat q_i, \hat d_j\big) & \text{both } q \text{ and } d \text{ have a pyramid} \\
+\cos\big(\hat u_q, \hat u_d\big) - \delta & \text{otherwise}
+\end{cases}
+$$
+
+$\hat u$ is the IDF-weighted mean over all of a perfume's notes, normalized, and $\delta = 0.125$.
+
+*Why δ?* A whole note set is a less noisy average than a single layer, so whole-set cosines run systematically higher than layer-wise scores. Without the offset, flat candidates crowd out pyramid candidates for every pyramid query (validation Recall@10 falls to 0.080). δ puts the two kinds of score on one scale and is tuned on train (§5.4). For a flat query every candidate uses the whole-set score, so δ does not change its ranking.
+
+### 4.5 Search as one matrix product
 All candidate layers are precomputed and concatenated, $D \in \mathbb{R}^{N \times 1152}$ ($\approx$ 635 MB in float32). Because $W$ only touches the query side, the score is a single dot product:
 
 $$
 Q'_j = \sum_i W_{ij}\, \hat q_i, \qquad Q' = [Q'_T, Q'_M, Q'_B] \in \mathbb{R}^{1152}, \qquad \mathrm{scores} = Q' D^\top
 $$
 
-A batch of $B$ queries is one $(B \times 1152) \cdot (1152 \times N)$ product followed by `torch.topk`; the query perfume itself is masked out. $D$ is built in about a second as $\hat d_\ell = \mathrm{norm}(S_\ell E)$, with $S_\ell$ the sparse $N \times V$ matrix of note weights. Changing $W$ never requires rebuilding $D$. An approximate-nearest-neighbour index (FAISS) is not needed at this size: exact search over 137k vectors is already a single GPU matmul.
+A batch of $B$ queries is one $(B \times 1152) \cdot (1152 \times N)$ product followed by `torch.topk`; the query perfume itself is masked out. $D$ is built in about a second as $\hat d_\ell = \mathrm{norm}(S_\ell E)$, with $S_\ell$ the sparse $N \times V$ matrix of note weights. Changing $W$ never requires rebuilding $D$. Whole-note-set vectors are a second matrix $U \in \mathbb{R}^{N \times 384}$; for a batch, both products are computed and combined with the flat mask. An approximate-nearest-neighbour index (FAISS) is not needed at this size: exact search over 137k vectors is already a single GPU matmul.
 
 ---
 
@@ -240,42 +256,64 @@ $W$ has six free entries (symmetric). They are optimized as softplus-transformed
 
 ![Initial vs tuned W](docs/figures/layer_weights.png)
 
-The tuned $W$ is nearly diagonal: layers are compared with the same layer, and the middle (heart) layer matters most. Tuning $W$ is the largest single improvement: +0.012 Recall@10 and +0.012 nDCG@10 on test, both significant (§6).
+The tuned $W$ is nearly diagonal: layers are compared with the same layer, and the middle (heart) layer matters most. Tuning $W$ adds +0.012 Recall@10 and +0.012 nDCG@10 on test, both significant (§6).
 
-**Final settings**: `all-MiniLM-L6-v2` on `"name: description"`, IDF note weights, tuned $W$ above.
+### 5.4 Flat perfumes: δ
+δ is grid-searched on train Recall@10 with the tuned $W$ fixed:
+
+| δ | 0 | 0.05 | 0.075 | 0.1 | **0.125** | 0.15 | 0.2 | 0.3 |
+|---|---|---|---|---|---|---|---|---|
+| Train R@10 | 0.083 | 0.115 | 0.126 | 0.134 | **0.136** | 0.135 | 0.132 | 0.130 |
+
+On validation:
+
+| Scoring | R@10 | nDCG@10 | Flat queries R@10 | Pyramid queries R@10 |
+|---|---|---|---|---|
+| Layer-wise for every pair (before) | 0.114 | 0.109 | 0.057 | 0.128 |
+| Whole note set for every pair | **0.130** | 0.119 | 0.123 | **0.132** |
+| Hybrid, δ = 0 | 0.080 | 0.069 | 0.123 | 0.070 |
+| **Hybrid, δ = 0.125 (final)** | 0.129 | **0.121** | 0.123 | 0.131 |
+
+- Flat queries double (0.057 → 0.123), and pyramid queries improve slightly.
+- Hybrid vs. whole note set for every pair is not a significant difference (Recall@10 −0.0005 [−0.004, +0.003], nDCG@10 +0.002 [−0.001, +0.004]). We keep the hybrid because it uses the pyramid wherever one exists.
+- Re-tuning $W$ under the hybrid rule changed nothing (+0.0001 Recall@10).
+
+**Final settings**: `all-MiniLM-L6-v2` on `"name: description"`, IDF note weights, tuned $W$ above, whole-note-set comparison for flat perfumes with δ = 0.125.
 
 ---
 
 ## 6. Results
 
-Test split, 6,794 queries, positives with `agree ≥ 5`. **Word presence** is the same pipeline (IDF weights, layers, tuned $W$) with every note as a one-hot vector instead of an embedding, i.e. TF-IDF cosine over note names per layer. It isolates exactly what the embedding adds.
+Test split, 6,794 queries, positives with `agree ≥ 5`. **Word presence** is the same pipeline (IDF weights, layers, tuned $W$, the flat rule with its own δ = 0.2 tuned on train) with every note as a one-hot vector instead of an embedding, i.e. TF-IDF cosine over note names. It isolates exactly what the embedding adds.
 
 ![Results](docs/figures/results_comparison.png)
 
 | Method | R@5 | R@10 | R@20 | nDCG@10 | MRR |
 |---|---|---|---|---|---|
 | Random | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 |
-| Word presence (TF-IDF one-hot, tuned W) | 0.101 | **0.123** | 0.142 | 0.109 | 0.146 |
+| Word presence (TF-IDF one-hot, same pipeline) | 0.108 | 0.128 | 0.149 | 0.116 | 0.154 |
 | Previous version's setup: note names, hand-set W | 0.090 | 0.106 | 0.121 | 0.099 | 0.138 |
 | + note descriptions | 0.092 | 0.108 | 0.124 | 0.101 | 0.139 |
-| **Ours: + tuned W (final)** | **0.103** | 0.121 | **0.140** | **0.113** | **0.152** |
+| + tuned W | 0.103 | 0.121 | 0.140 | 0.113 | 0.152 |
+| **Ours: + flat handling (final)** | **0.114** | **0.134** | **0.156** | **0.124** | **0.165** |
 | *Fragrantica "also liked" (reference)* | *0.108* | *0.125* | *0.138* | *0.145* | *0.182* |
 
 Paired bootstrap on test (ours minus the other, 95% CI):
 
 | vs. | Recall@10 | nDCG@10 |
 |---|---|---|
-| Word presence | −0.002 [−0.006, +0.002] | **+0.004 [+0.001, +0.007]** |
-| Previous version's setup | **+0.015 [+0.011, +0.018]** | **+0.014 [+0.011, +0.017]** |
+| Word presence | **+0.006 [+0.002, +0.009]** | **+0.009 [+0.006, +0.012]** |
+| Before flat handling (+ tuned W) | **+0.013 [+0.010, +0.016]** | **+0.011 [+0.009, +0.014]** |
+| Previous version's setup | **+0.028 [+0.024, +0.032]** | **+0.025 [+0.022, +0.029]** |
 
-- **Against word presence**, the embedding finds the same number of voted matches in the top 10 but ranks them higher (nDCG@10 and MRR).
-- **Against the previous version** (the same embedding idea with note names and a hand-set W, run on the new data), the final model is +14% Recall@10.
-- Fragrantica's own list ranks best on nDCG/MRR, as expected: it is built from browsing behaviour, brand and gender as well as notes. Its brand agreement in the top 10 is 16% versus 4% for ours. On Recall@20 the note-only model is level with it.
+- **Against word presence**, the embedding finds more voted matches in the top 10 and ranks them higher; both differences are significant.
+- **Against the previous version** (the same embedding idea with note names and a hand-set W, run on the new data), the final model is +26% Recall@10 (0.106 → 0.134). Descriptions add +0.002, tuning W +0.012, and flat handling +0.013.
+- Fragrantica's own list ranks best on nDCG/MRR, as expected: it is built from browsing behaviour, brand and gender as well as notes. Its brand agreement in the top 10 is 16% versus 4% for ours. On Recall@10 and Recall@20 the note-only model is ahead of it (0.134 vs 0.125, 0.156 vs 0.138).
 
 ### Flat vs. pyramid perfumes
 ![Flat vs pyramid](docs/figures/flat_vs_pyramid.png)
 
-The overall tie with word presence hides two opposite effects. On the 5,412 queries with a full pyramid, the embedding is better (Recall@10 0.135 vs 0.129). On the 1,382 flat queries (notes listed without layers), it is far worse (0.066 vs 0.100). See [§8](#8-limitations).
+Before flat handling, the 1,382 flat queries (notes listed without layers) were the weak spot: Recall@10 0.066. Comparing them on whole note sets brings them to 0.121, on par with word presence (0.119), while the 5,412 pyramid queries also improve slightly (0.135 → 0.137, word presence 0.130).
 
 ---
 
@@ -289,14 +327,14 @@ On the test split, voted matches that the final model ranks in its top 10 while 
 | Versus Pour Homme (In The Box) → **Versace Pour Homme** (209) | #10 | >100 | `blue hyacinth`/`hyacinth`, `crystal amber`/`amber`, `may rose`/`rose de mai`, `sage`/`clary sage`, `sicilian lemon`/`lemon` |
 | Opium EDP 2009 → **Opium EDT 2009** (147) | #5 | >100 | `myrhh` (typo in the data)/`myrrh`, `vanille`/`vanilla`, `mandarin orange`/`tangerine` |
 | XS (2018) → **XS** (Rabanne) (190) | #3 | >100 | `geranium`/`bourbon geranium`, `juniper berries`/`juniper` |
-| 9pm (Afnan) → **Odyssey Spectra** (Armaf) (141) | #9 | #36 | `wild lavender`/`lavender`, `lily-of-the-valley`/`lily of the valley` |
+| Van Py Rhum (Lorenzo Pazzaglia) → **X Xandal** (Aromatix × French Avenue) (174) | #4 | >100 | `agarwood (oud)`/`agarwood`, `tahitian vanilla`/`vanilla absolute` |
 
-Counting every voted match in the test split, the two models disagree on a minority of hits. The embedding's extra hits come from pyramid perfumes, while word presence's come mostly from flat ones:
+Counting every voted match in the test split, the two models disagree on a minority of hits, and the embedding finds more of the ones the other misses, on both pyramid and flat queries:
 
 | Voted matches in the top 10 | Both | Ours only | Word presence only |
 |---|---|---|---|
-| Pyramid queries | 1,443 | **302** | 216 |
-| Flat queries | 159 | 45 | **86** |
+| Pyramid queries | 1,466 | **302** | 221 |
+| Flat queries | 253 | **67** | 50 |
 
 ### A typical recommendation list
 Top 5 for **Creed Aventus** (`bergamot, black currant, apple, pineapple, patchouli, birch, musk, oakmoss, ambroxan, …`):
@@ -315,7 +353,7 @@ All five are Aventus-inspired dupes that copy its note list almost verbatim, whi
 
 ## 8. Limitations
 
-- **Flat perfumes.** 28% of perfumes list their notes without a pyramid and are copied into all three layers. Compared layer by layer with near-diagonal $W$, such a perfume matches other flat perfumes much better than pyramids (its "top" holds every note, a pyramid's top only a few). Its top 10 is then mostly other flat perfumes, so on flat queries the result does not even depend on $W$. Word presence suffers less because one-hot vectors only reward exact overlaps. Comparing perfumes without the layer split would fix this; that structural change is left for future work.
+- **Flat perfumes** (28%) have no layer information, so for them the model is a plain whole-note-set embedding. Their pairs with pyramid perfumes share one ranking with layer-wise scores only through the single offset δ.
 - **Notes are not the smell.** Members vote after smelling the perfumes; the model sees a note list that brands write for marketing. Fragrantica's own recommender, which uses more than notes, reaches only Recall@10 0.125 itself; absolute scores on these labels are low for any method.
 - **The labels favour clones.** Many voted matches are dupes or flankers that copy the original's note list almost exactly. Exact name overlap already finds these, which limits how much better understanding of notes can show up in the metrics. Popular perfumes also have more votes, so they weigh more in nDCG.
 - **LLM-written descriptions.** The 2,589 note descriptions were generated, not written by experts, and have not all been checked by hand. 212 notes have no description.
@@ -330,9 +368,9 @@ src/
   perfume_recommendation.py      final recommender (Recommender class, demo)
   preprocess.py                  raw Kaggle dump → data/*.csv
   functions.py                   note parsing, per-perfume IDF, note weights, note embedding loader (get_E)
-  optimize.py                    §5.2–5.3 grid search + Nelder-Mead; `idf_only` mode
+  optimize.py                    §5.2–5.4 grid search + Nelder-Mead; `idf_only`, `flat`, `flat_w`, `flat_onehot` modes
   evaluate.py                    metrics, splits, baselines; `baselines` mode = §6
-  v1/                            previous version: recommender, evaluation, W tuning, notebook (old dataset)
+  v1(previous version)/          previous version: recommender, evaluation, W tuning, notebook (old dataset)
 data/
   note_descriptions.csv          LLM note descriptions (committed)
   fra_cleaned.csv                old dataset used by v1
@@ -347,13 +385,16 @@ python src/preprocess.py                 # seconds
 python src/evaluate.py                   # step-5 baselines, ~1 min
 python src/optimize.py                   # §5.2–5.3 with member votes, ~15 min
 python src/optimize.py idf_only          # §5.2–5.3 IDF only (final W), ~12 min
+python src/optimize.py flat              # §5.4 δ for flat perfumes, ~4 min
+python src/optimize.py flat_w            # §5.4 hybrid vs whole note set, W re-tune, ~15 min
+python src/optimize.py flat_onehot       # δ for the word-presence baseline, ~5 min
 python src/evaluate.py baselines         # §6, ~2 min
 ```
 
 `cache/` holds note embeddings; delete `cache/emb_*desc*.pt` after editing `data/note_descriptions.csv`.
 
 ### Previous version
-- **v1** (`src/v1/`) used the 2024 [Fragrantica dataset](https://www.kaggle.com/datasets/olgagmiufana1/fragrantica-com-fragrance-dataset) (24,063 perfumes) with note names only, a hand-set $W$, and self-retrieval Hit@1 as the metric. Its design is the "previous version's setup" row in §6; this README describes **v2**.
+- **v1** (`src/v1(previous version)/`) used the 2024 [Fragrantica dataset](https://www.kaggle.com/datasets/olgagmiufana1/fragrantica-com-fragrance-dataset) (24,063 perfumes) with note names only, a hand-set $W$, and self-retrieval Hit@1 as the metric. Its design is the "previous version's setup" row in §6; this README describes **v2**.
 
 ---
 
