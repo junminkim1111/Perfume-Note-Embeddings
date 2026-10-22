@@ -7,7 +7,17 @@
 
 A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings.
 
-![v2 model architecture](docs/model_architecture.png)
+### Key results
+Test split: 6,794 held-out queries. The ground truth is Fragrantica members' "Smells like this" votes.
+
+| Method | Recall@10 | nDCG@10 |
+|---|---|---|
+| Word presence (TF-IDF over note names, same pipeline) | 0.128 | 0.116 |
+| Previous version (note names, hand-set W) | 0.106 | 0.099 |
+| **Ours (final)** | **0.134** | **0.124** |
+| *Fragrantica "also liked" (reference; uses more than notes)* | *0.125* | *0.145* |
+
+Ours minus word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). Against the previous version, Recall@10 is 26% higher. Full results are in [§6](#6-results).
 
 ## Contents
 1. [Overview](#1-overview)
@@ -50,11 +60,11 @@ Nearest notes in the final embedding space (cosine similarity):
 | iso e super | orbitone (0.71), amberketal (0.64), transparent woods (0.64), amberwood (0.63) |
 | orange blossom | citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83) |
 
-**Result in one line:** on held-out "Smells like this" votes, the final model beats a word-presence model with the identical pipeline on both Recall@10 (0.134 vs 0.128) and nDCG@10 (0.124 vs 0.116), both significant, and improves Recall@10 by 26% over the previous version ([§6](#6-results)).
-
 ---
 
 ## 2. Installation & usage
+
+Tested with Python 3.13 on an Apple-silicon Mac (MPS); exact package versions are pinned in `requirements.txt`. A GPU is optional: the code uses MPS or CUDA when available, otherwise the CPU.
 
 ```bash
 git clone https://github.com/junminkim1111/perfume-note-embeddings.git
@@ -141,6 +151,8 @@ Every Fragrantica perfume page has a "This perfume reminds me of" list, where me
 ---
 
 ## 4. Architecture
+
+![v2 model architecture](docs/model_architecture.png)
 
 ### 4.1 Note encoding
 Every distinct note $n$ (2,589 of them) is encoded once:
@@ -302,8 +314,7 @@ Paired bootstrap on test (ours minus the other, 95% CI):
 | Before flat handling (+ tuned W) | **+0.013 [+0.010, +0.016]** | **+0.011 [+0.009, +0.014]** |
 | Previous version's setup | **+0.028 [+0.024, +0.032]** | **+0.025 [+0.022, +0.029]** |
 
-- **Against word presence**, the embedding finds more voted matches in the top 10 and ranks them higher; both differences are significant.
-- **Against the previous version** (the same embedding idea with note names and a hand-set W, run on the new data), the final model is +26% Recall@10 (0.106 → 0.134). Descriptions add +0.002, tuning W +0.012, and flat handling +0.013.
+- **Against word presence**, the embedding finds more voted matches in the top 10 and ranks them higher; both differences are significant.- **Against the previous version** (the same embedding idea with note names and a hand-set W, run on the new data), the final model is +26% Recall@10 (0.106 → 0.134). Descriptions add +0.002, tuning W +0.012, and flat handling +0.013.
 - Fragrantica's own list ranks best on nDCG/MRR, as expected: it is built from browsing behaviour, brand and gender as well as notes. Its brand agreement in the top 10 is 16% versus 4% for ours. On Recall@10 and Recall@20 the note-only model is ahead of it (0.134 vs 0.125, 0.156 vs 0.138).
 
 ### Flat vs. pyramid perfumes
@@ -396,5 +407,6 @@ python src/evaluate.py baselines         # §6, ~2 min
 
 ## 10. License & acknowledgements
 
+- Code: [MIT License](LICENSE).
 - Data: [Fragrantica Perfumes: Ratings, Notes, Votes & More](https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes), licensed **CC BY-NC-SA 4.0** (non-commercial, attribution, share-alike). The derived file `data/note_descriptions.csv` is shared under the same license. All perfume data originates from [Fragrantica](https://www.fragrantica.com).
 - Embedding models: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), [EmbeddingGemma](https://huggingface.co/google/embeddinggemma-300m), [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B).

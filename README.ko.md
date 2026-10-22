@@ -7,7 +7,17 @@
 
 향수의 Top / Middle / Base 노트를 sentence embedding으로 바꿔서 향수 사이의 유사도를 측정하는 모델입니다.
 
-![v2 model architecture](docs/model_architecture.png)
+### 핵심 결과
+Test 세트, 학습에 쓰지 않은 쿼리 6,794개. 정답은 Fragrantica 회원들의 "Smells like this" 투표입니다.
+
+| 방법 | Recall@10 | nDCG@10 |
+|---|---|---|
+| Word presence (노트 이름 TF-IDF, 같은 파이프라인) | 0.128 | 0.116 |
+| 이전 버전 (노트 이름, 손으로 정한 W) | 0.106 | 0.099 |
+| **최종 모델** | **0.134** | **0.124** |
+| *Fragrantica "also liked" (참고, 노트 외 신호도 사용)* | *0.125* | *0.145* |
+
+최종 모델 − word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). 이전 버전보다 Recall@10이 26% 높습니다. 전체 결과는 [6장](#6-결과)에 있습니다.
 
 ## 목차
 1. [개요](#1-개요)
@@ -50,13 +60,11 @@
 | iso e super | orbitone (0.71), amberketal (0.64), transparent woods (0.64), amberwood (0.63) |
 | orange blossom | citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83) |
 
-> **결과 요약**
-> 학습에 쓰지 않은 "Smells like this" 투표로 평가했을 때, 파이프라인이 같은 word presence 모델보다 Recall@10 (0.134 vs 0.128)과 nDCG@10 (0.124 vs 0.116) 모두 유의하게 높습니다.
-> 이전 버전보다는 Recall@10이 26% 올랐습니다 ([6장](#6-결과)).
-
 ---
 
 ## 2. 설치 및 사용법
+
+Apple silicon Mac(MPS), Python 3.13에서 테스트했고, 패키지 버전은 `requirements.txt`에 고정되어 있습니다. GPU는 없어도 되며, MPS나 CUDA가 있으면 사용하고 없으면 CPU로 실행합니다.
 
 ```bash
 git clone https://github.com/junminkim1111/perfume-note-embeddings.git
@@ -148,6 +156,8 @@ Fragrantica의 향수 페이지마다 "This perfume reminds me of" 목록이 있
 ---
 
 ## 4. 아키텍처
+
+![v2 model architecture](docs/model_architecture.png)
 
 ### 4.1 Note encoding
 서로 다른 노트 $n$ 2,589개를 한 번씩 인코딩합니다.
@@ -339,8 +349,7 @@ Test 세트 paired bootstrap (우리 모델 − 비교 대상, 95% CI):
 | Flat 처리 전 (+ 튜닝한 W) | **+0.013 [+0.010, +0.016]** | **+0.011 [+0.009, +0.014]** |
 | 이전 버전 설정 | **+0.028 [+0.024, +0.032]** | **+0.025 [+0.022, +0.029]** |
 
-- **Word presence 대비**: 상위 10개 안에서 정답을 더 많이 찾고, 더 위에 놓습니다. 두 차이 모두 유의합니다.
-- **이전 버전 대비**: 같은 embedding 아이디어에 노트 이름과 손으로 정한 W를 쓴 설정을 새 데이터에서 돌린 것과 비교하면, 최종 모델은 Recall@10이 +26% 높습니다 (0.106 → 0.134). 노트 설명이 +0.002, W 튜닝이 +0.012, flat 향수 처리가 +0.013을 더했습니다.
+- **Word presence 대비**: 상위 10개 안에서 정답을 더 많이 찾고, 더 위에 놓습니다. 두 차이 모두 유의합니다.- **이전 버전 대비**: 같은 embedding 아이디어에 노트 이름과 손으로 정한 W를 쓴 설정을 새 데이터에서 돌린 것과 비교하면, 최종 모델은 Recall@10이 +26% 높습니다 (0.106 → 0.134). 노트 설명이 +0.002, W 튜닝이 +0.012, flat 향수 처리가 +0.013을 더했습니다.
 - **Fragrantica 자체 추천**은 예상대로 nDCG/MRR이 가장 높습니다. 노트뿐 아니라 사용자 탐색 기록, 브랜드, 성별까지 쓰기 때문입니다. 상위 10개의 브랜드 일치율이 16%로, 우리 모델(4%)보다 훨씬 높습니다. Recall@10과 Recall@20에서는 노트만 쓰는 우리 모델이 더 높습니다 (0.134 vs 0.125, 0.156 vs 0.138).
 
 ### Flat vs. pyramid 향수
@@ -437,5 +446,6 @@ python src/evaluate.py baselines         # 6장, 약 2분
 
 ## 10. 라이선스 및 감사의 글
 
+- **코드**: [MIT License](LICENSE).
 - **데이터**: [Fragrantica Perfumes: Ratings, Notes, Votes & More](https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes), **CC BY-NC-SA 4.0** (비상업적 이용, 출처 표시, 동일 조건 변경 허락). 이 레포의 파생 파일 `data/note_descriptions.csv`도 같은 라이선스를 따릅니다. 모든 향수 데이터의 출처는 [Fragrantica](https://www.fragrantica.com)입니다.
 - **Embedding 모델**: [all-MiniLM-L6-v2](https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2), [EmbeddingGemma](https://huggingface.co/google/embeddinggemma-300m), [bge-base-en-v1.5](https://huggingface.co/BAAI/bge-base-en-v1.5), [Qwen3-Embedding-0.6B](https://huggingface.co/Qwen/Qwen3-Embedding-0.6B)
