@@ -8,16 +8,9 @@
 향수의 Top / Middle / Base 노트를 sentence embedding으로 바꿔서 향수 사이의 유사도를 측정하는 모델입니다.
 
 ### 핵심 결과
-Test 세트, 학습에 쓰지 않은 쿼리 6,794개. 정답은 Fragrantica 회원들의 "Smells like this" 투표입니다.
+![Key results](docs/figures/key_results.png)
 
-| 방법 | Recall@10 | nDCG@10 |
-|---|---|---|
-| Word presence (노트 이름 TF-IDF, 같은 파이프라인) | 0.128 | 0.116 |
-| 이전 버전 (노트 이름, 손으로 정한 W) | 0.106 | 0.099 |
-| **최종 모델** | **0.134** | **0.124** |
-| *Fragrantica "also liked" (참고, 노트 외 신호도 사용)* | *0.125* | *0.145* |
-
-최종 모델 − word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). 이전 버전보다 Recall@10이 26% 높습니다. 전체 결과는 [6장](#6-결과)에 있습니다.
+Test 세트, 학습에 쓰지 않은 쿼리 6,794개. 정답은 Fragrantica 회원들의 "Smells like this" 투표입니다. 최종 모델 − word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). 이전 버전보다 Recall@10이 26% 높습니다. 브랜드와 탐색 기록까지 쓰는 Fragrantica 자체 "also liked" 목록은 Recall@10 0.125, nDCG@10 0.145입니다. 전체 결과는 [6장](#6-결과)에 있습니다.
 
 ## 목차
 1. [개요](#1-개요)

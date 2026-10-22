@@ -8,16 +8,9 @@
 A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings.
 
 ### Key results
-Test split: 6,794 held-out queries. The ground truth is Fragrantica members' "Smells like this" votes.
+![Key results](docs/figures/key_results.png)
 
-| Method | Recall@10 | nDCG@10 |
-|---|---|---|
-| Word presence (TF-IDF over note names, same pipeline) | 0.128 | 0.116 |
-| Previous version (note names, hand-set W) | 0.106 | 0.099 |
-| **Ours (final)** | **0.134** | **0.124** |
-| *Fragrantica "also liked" (reference; uses more than notes)* | *0.125* | *0.145* |
-
-Ours minus word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). Against the previous version, Recall@10 is 26% higher. Full results are in [§6](#6-results).
+Test split: 6,794 held-out queries. The ground truth is Fragrantica members' "Smells like this" votes. Ours minus word presence: Recall@10 +0.006 [+0.002, +0.009], nDCG@10 +0.009 [+0.006, +0.012] (paired bootstrap, 95% CI). Against the previous version, Recall@10 is 26% higher. Fragrantica's own "also liked" list, which also uses brand and browsing data, scores 0.125 Recall@10 and 0.145 nDCG@10. Full results are in [§6](#6-results).
 
 ## Contents
 1. [Overview](#1-overview)
