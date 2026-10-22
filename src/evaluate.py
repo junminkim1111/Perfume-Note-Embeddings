@@ -1,4 +1,4 @@
-"""v2 평가: "Smells like this" 투표를 정답으로 (handoff 5.6)"""
+"""평가: "Smells like this" 투표를 정답으로 (README 5장)"""
 import math
 import os
 import sys
@@ -42,7 +42,7 @@ def model_lists(rec, query_rows, batch=512):
         scores = rec.row_scores(rows)
         self_score = scores[torch.arange(len(rows)), rows]
         self_hit += (self_score >= scores.max(1).values - 1e-5).cpu().tolist()
-        lists += rec.search_rows(rows, K)[1].tolist()
+        lists += rec.search(scores, K, exclude_rows=rows)[1].tolist()
     return lists, np.mean(self_hit)
 
 
@@ -97,18 +97,6 @@ def onehot_lists(rec, W, query_rows, delta=None, batch=256):
     return lists
 
 
-def jaccard_lists(rec, query_rows, batch=256):
-    """단어 유무 기준선 2: 두 향수의 노트 집합(세 레이어 합집합) Jaccard 계수"""
-    X = (sum(rec.weight_matrices(rec.layers, 1.)) > 0).astype(np.float32).tocsr()
-    size = np.asarray(X.sum(1)).ravel()
-    lists = []
-    for i in range(0, len(query_rows), batch):
-        rows = np.array(query_rows[i:i + batch])
-        inter = (X[rows] @ X.T).toarray()
-        lists += top_rows(inter / (size[rows, None] + size[None, :] - inter), rows)
-    return lists
-
-
 def paired_bootstrap(a, b, n=2000, seed=0):
     """쿼리별 지표 a, b (같은 쿼리 순서) -> 평균 차이 a − b와 95% 구간"""
     diff = np.asarray(a) - np.asarray(b)
@@ -156,11 +144,11 @@ def evaluate(rec, truth, lists, self_hit=float("nan")):
 if __name__ == "__main__":
     os.makedirs("results", exist_ok=True)  # results/는 레포에 없다 (.gitignore)
     from sentence_transformers import SentenceTransformer
-    from perfume_recommendation import Recommender, INITIAL_W
+    from perfume_recommendation import Recommender, V1_LAYER_W
 
     device = torch.device("mps" if torch.backends.mps.is_available() else "cuda" if torch.cuda.is_available() else "cpu")
     model = SentenceTransformer("all-MiniLM-L6-v2", device=str(device))
-    rec = Recommender(pd.read_csv("data/perfumes_clean.csv"), model, device, alpha_min=.5, layer_weights=INITIAL_W, delta=None)  # 5단계 설정 그대로
+    rec = Recommender(pd.read_csv("data/perfumes_clean.csv"), model, device, alpha_min=.5, layer_weights=V1_LAYER_W, delta=None)  # 5단계 설정 그대로
     IDF_weight = rec.IDF_weight
     pd.set_option("display.precision", 4, "display.width", 200)
 
@@ -170,7 +158,7 @@ if __name__ == "__main__":
         import time
         from functions import get_E, note_texts
         import json
-        from perfume_recommendation import FINAL_W, FINAL_DELTA
+        from perfume_recommendation import LAYER_W, FLAT_DELTA
         onehot_delta = json.load(open("results/flat_onehot.json"))["best delta"]  # optimize.py flat_onehot
         E = {i: get_E("minilm", i, note_texts(rec.vocab, i), device) for i in ("name", "name+desc")}
         rec = Recommender(rec.dataset, None, device, E=E["name+desc"])
@@ -186,13 +174,11 @@ if __name__ == "__main__":
             return fair_model_lists(rec, query_rows)
 
         methods = {"random": lambda: random_lists(len(rec.dataset), query_rows),
-                   "Jaccard (note sets)": lambda: jaccard_lists(rec, query_rows),
-                   "TF-IDF one-hot, final W": lambda: onehot_lists(rec, FINAL_W, query_rows),
-                   "TF-IDF one-hot, final W, flat rule": lambda: onehot_lists(rec, FINAL_W, query_rows, delta=onehot_delta),
-                   "MiniLM name, initial W (v1 setup on new data)": lambda: ours("name", INITIAL_W, None),
-                   "MiniLM name+desc, initial W": lambda: ours("name+desc", INITIAL_W, None),
-                   "MiniLM name+desc, final W (layered only)": lambda: ours("name+desc", FINAL_W, None),
-                   "ours (MiniLM name+desc, final W, flat rule)": lambda: ours("name+desc", FINAL_W, FINAL_DELTA),
+                   "TF-IDF one-hot, final W, flat rule": lambda: onehot_lists(rec, LAYER_W, query_rows, delta=onehot_delta),
+                   "MiniLM name, initial W (v1 setup on new data)": lambda: ours("name", V1_LAYER_W, None),
+                   "MiniLM name+desc, initial W": lambda: ours("name+desc", V1_LAYER_W, None),
+                   "MiniLM name+desc, final W (layered only)": lambda: ours("name+desc", LAYER_W, None),
+                   "ours (MiniLM name+desc, final W, flat rule)": lambda: ours("name+desc", LAYER_W, FLAT_DELTA),
                    "Fragrantica also_liked (reference)": lambda: also_liked_lists(rec, query_rows)}
         rows, per_query, all_lists = [], {}, {}
         for name, make in methods.items():
@@ -208,8 +194,8 @@ if __name__ == "__main__":
         with open("cache/final_comparison_lists.pkl", "wb") as f:
             pickle.dump({"query_rows": query_rows, "lists": all_lists}, f)
         ours_name = "ours (MiniLM name+desc, final W, flat rule)"
-        for base in ("TF-IDF one-hot, final W, flat rule", "TF-IDF one-hot, final W", "MiniLM name, initial W (v1 setup on new data)",
-                     "MiniLM name+desc, final W (layered only)", "Jaccard (note sets)"):
+        for base in ("TF-IDF one-hot, final W, flat rule", "MiniLM name, initial W (v1 setup on new data)",
+                     "MiniLM name+desc, final W (layered only)"):
             for j, m in enumerate(("R@10", "nDCG@10")):
                 d = paired_bootstrap(per_query[ours_name][:, j], per_query[base][:, j])
                 print(f"ours − {base}, test {m}: {d[0]:+.4f}  95% CI [{d[1]:+.4f}, {d[2]:+.4f}]")

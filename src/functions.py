@@ -50,7 +50,7 @@ def merge_notes(*layers):
 
 
 def get_doc_IDF_weights(dataset, layers=('top', 'middle', 'base')):
-    """IDF = log(N / df) + 1, df = 노트를 (어느 레이어에든) 가진 향수 수 (handoff 5.2)"""
+    """IDF = log(N / df) + 1, df = 노트를 (어느 레이어에든) 가진 향수 수 (README 4.2)"""
     df = Counter()
     for row in zip(*(dataset[c] for c in layers)):
         df.update(set().union(*map(parse_notes, row)))
@@ -59,7 +59,7 @@ def get_doc_IDF_weights(dataset, layers=('top', 'middle', 'base')):
 
 
 def get_note_weights(layers, IDF_weight, alpha_min):
-    """한 향수의 레이어들 [{note: 투표 가중치}] -> 레이어별 {note: w}, 레이어 안 합 1 (handoff 5.3)
+    """한 향수의 레이어들 [{note: 투표 가중치}] -> 레이어별 {note: w}, 레이어 안 합 1 (README 5.2)
     투표 가중치가 향수 전체에서 전부 0이면 α = 1 (IDF만)."""
     voted = any(v for layer in layers for v in layer.values())
     alpha = alpha_min if voted else 1.
@@ -73,7 +73,7 @@ def get_note_weights(layers, IDF_weight, alpha_min):
     return out
 
 
-# 노트 embedding (handoff 5.8). key: (모델, encode 인자)
+# 노트 embedding (README 5.1). key: (모델, encode 인자)
 MODELS = {
     "minilm": ("all-MiniLM-L6-v2", {}),
     "bge": ("BAAI/bge-base-en-v1.5", {}),  # 대칭 작업이라 검색용 지시문은 붙이지 않는다

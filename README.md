@@ -5,13 +5,9 @@
 
 # Perfume Recommendation with Note Embeddings
 
-Finds perfumes that smell alike from their **Top / Middle / Base notes alone**, by embedding every note with a sentence-embedding model instead of matching note names as keywords.
+A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings.
 
 ![v2 model architecture](docs/model_architecture.png)
-
-- 137,668 perfumes from Fragrantica (2026 dump), 2,589 distinct notes
-- Evaluated against **Fragrantica members' "Smells like this" votes** (Recall@K, nDCG@10, MRR)
-- One query against the whole database is a single matrix product (~0.25 s for 512 queries on an Apple-silicon GPU)
 
 ## Contents
 1. [Overview](#1-overview)
@@ -50,10 +46,8 @@ Nearest notes in the final embedding space (cosine similarity):
 | Note | Nearest notes |
 |---|---|
 | bergamot | white bergamot (0.92), bergamot blossom (0.90), sicilian bergamot (0.88), rind bergamot (0.88) |
-| oud | agarwood (oud) (0.92), agarwood (0.87), indian oud (0.84), australian oud (0.81) |
 | tonka bean | tonka (0.99), coumarin (0.89), kumbaru (0.81), sweet almond (0.72) |
 | iso e super | orbitone (0.71), amberketal (0.64), transparent woods (0.64), amberwood (0.63) |
-| hedione | paradisone (0.73), wild jasmine (0.70), jasmine (0.69), indonesian jasmine (0.69) |
 | orange blossom | citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83) |
 
 **Result in one line:** on held-out "Smells like this" votes, the final model beats a word-presence model with the identical pipeline on both Recall@10 (0.134 vs 0.128) and nDCG@10 (0.124 vs 0.116), both significant, and improves Recall@10 by 26% over the previous version ([§6](#6-results)).
@@ -61,8 +55,6 @@ Nearest notes in the final embedding space (cosine similarity):
 ---
 
 ## 2. Installation & usage
-
-Requires Python 3.11+ (tested on 3.13; exact package versions are pinned in `requirements.txt`). A GPU is optional; Apple-silicon (MPS) and CUDA are picked up automatically.
 
 ```bash
 git clone https://github.com/junminkim1111/perfume-note-embeddings.git
@@ -207,7 +199,7 @@ $$
 Q'_j = \sum_i W_{ij}\, \hat q_i, \qquad Q' = [Q'_T, Q'_M, Q'_B] \in \mathbb{R}^{1152}, \qquad \mathrm{scores} = Q' D^\top
 $$
 
-A batch of $B$ queries is one $(B \times 1152) \cdot (1152 \times N)$ product followed by `torch.topk`; the query perfume itself is masked out. $D$ is built in about a second as $\hat d_\ell = \mathrm{norm}(S_\ell E)$, with $S_\ell$ the sparse $N \times V$ matrix of note weights. Changing $W$ never requires rebuilding $D$. Whole-note-set vectors are a second matrix $U \in \mathbb{R}^{N \times 384}$; for a batch, both products are computed and combined with the flat mask. An approximate-nearest-neighbour index (FAISS) is not needed at this size: exact search over 137k vectors is already a single GPU matmul.
+A batch of $B$ queries is one $(B \times 1152) \cdot (1152 \times N)$ product followed by `torch.topk`; the query perfume itself is masked out. Whole-note-set vectors are a second matrix $U \in \mathbb{R}^{N \times 384}$; for a batch, both products are computed and combined with the flat mask.
 
 ---
 
@@ -252,9 +244,13 @@ $w_n = \mathrm{IDF}(n)^{\gamma}\,\big(\alpha + (1-\alpha)\,v_n/100\big)$, with $
 With a fixed $W$, votes beat IDF clearly. Once each setting gets its own tuned $W$, the gap on test is +0.0025 Recall@10 (95% CI −0.001 to +0.006, not significant). **The final model uses IDF only.** The goal is to find similar perfumes from the notes themselves. Member prominence votes are human judgements about the specific perfume, so using them would let people's perception into the model through the back door, for a gain we could not show to be real.
 
 ### 5.3 Layer weights W
-$W$ has six free entries (symmetric). They are optimized as softplus-transformed parameters with Nelder-Mead (adaptive, 225 evaluations), starting from the hand-set $W$ of the previous version. To keep each evaluation at about 3 s, the objective uses a fixed random sample of 10,000 train queries.
+$W$ has six free entries (symmetric). They are optimized as softplus-transformed parameters with Nelder-Mead (adaptive, 225 evaluations). To keep each evaluation at about 3 s, the objective uses a fixed random sample of 10,000 train queries.
 
-![Initial vs tuned W](docs/figures/layer_weights.png)
+```python
+W = [[0.308, 0.023, 0.009],   # query Top    vs. candidate Top / Middle / Base
+     [0.023, 0.404, 0.021],   # query Middle
+     [0.009, 0.021, 0.184]]   # query Base   (entries sum to 1)
+```
 
 The tuned $W$ is nearly diagonal: layers are compared with the same layer, and the middle (heart) layer matters most. Tuning $W$ adds +0.012 Recall@10 and +0.012 nDCG@10 on test, both significant (§6).
 

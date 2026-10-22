@@ -1,4 +1,4 @@
-"""data/raw/perfumes.{csv,jsonl} -> data/perfumes_clean.csv, data/smells_like.csv (handoff 5.1)"""
+"""data/raw/perfumes.{csv,jsonl} -> data/perfumes_clean.csv, data/smells_like.csv (README 3장)"""
 import json
 import pandas as pd
 from functions import parse_notes, format_notes, merge_notes

@@ -1,4 +1,4 @@
-"""v2 튜닝 (handoff 5.7). 목적함수: 학습 세트 Recall@10, 정답 up ≥ 5.
+"""하이퍼파라미터 튜닝 (README 5장). 목적함수: 학습 세트 Recall@10, 정답 up ≥ 5.
 1) (α_min, γ) 격자 (기본 W)  2) W Nelder-Mead (학습 표본 10k)  3) 튜닝한 W로 격자 재확인
 4) 검증 세트로 최종 선택  5) 테스트 세트 1회 측정
 γ: IDF 지수. IDF^γ를 IDF_weight로 넘긴다 (γ = 0이면 IDF 끔).
@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 from scipy.optimize import minimize
-from perfume_recommendation import Recommender, INITIAL_W
+from perfume_recommendation import Recommender, V1_LAYER_W
 from evaluate import load_truth, model_lists, fair_model_lists, evaluate, random_lists, also_liked_lists, score_query, paired_bootstrap, onehot_lists
 from functions import get_E, note_texts
 from functions import get_doc_IDF_weights
@@ -79,6 +79,31 @@ def tune_W(rec, truth, W0, log):
     return W
 
 
+def delta_grid(rec, truth, deltas):
+    """flat 쌍의 delta grid (train Recall@10) -> (기록, 최적 delta)"""
+    log = []
+    for delta in deltas:
+        rec.delta = delta
+        log.append({"delta": delta, "train R@10": recall_at(rec, truth)})
+        print(f"  delta {delta:<5} train R@10 {log[-1]['train R@10']:.4f}", flush=True)
+    return log, max(log, key=lambda l: l["train R@10"])["delta"]
+
+
+def val_compare(rec, truth, configs):
+    """configs: 이름 -> (delta, W, 모든 쌍을 합집합으로?). validation 표와 순위 목록 (공정한 동점 처리)"""
+    flat_all, out = rec.flat.clone(), {}
+    for name, (delta, W, union_only) in configs.items():
+        rec.delta = delta
+        rec.set_layer_weights(W)
+        rec.flat = torch.ones_like(flat_all) if union_only else flat_all  # 모두 flat로 보면 모든 쌍이 합집합
+        lists = fair_model_lists(rec, list(truth))
+        rec.flat = flat_all
+        table, _ = evaluate(rec, truth, lists)
+        out[name] = (table, lists)
+        print(f"\n== {name} ==\n" + table[["R@10", "nDCG@10", "MRR", "n"]].to_string(float_format="%.4f"), flush=True)
+    return out
+
+
 def save(obj, path):
     os.makedirs("results", exist_ok=True)
     with open(path, "w") as f:
@@ -98,49 +123,36 @@ if __name__ == "__main__":
     tune_rows = rng.choice(list(truth["train"]), N_TUNE, replace=False)
     tune_truth = {r: truth["train"][r] for r in tune_rows}
     print({s: len(t) for s, t in truth.items()}, "tune", len(tune_truth))
-    W0 = (np.array(INITIAL_W) / np.sum(INITIAL_W)).round(4).tolist()
+    W0 = (np.array(V1_LAYER_W) / np.sum(V1_LAYER_W)).round(4).tolist()
     log = []
 
     if sys.argv[1:] == ["flat"]:
-        # 최종 설정 그대로 (IDF만, FINAL_W). 바뀌는 것은 flat 향수가 낀 쌍의 점수뿐
-        from perfume_recommendation import FINAL_W
+        # 최종 설정 그대로 (IDF만, LAYER_W). 바뀌는 것은 flat 향수가 낀 쌍의 점수뿐
+        from perfume_recommendation import LAYER_W
         rec.IDF_weight = IDF_weight
         rec.build_DB(1.)
-        rec.set_layer_weights(FINAL_W)
+        rec.set_layer_weights(LAYER_W)
         print("\n[1] delta grid on train (Recall@10)", flush=True)
-        grid_log = []
-        for delta in [0, .025, .05, .075, .1, .125, .15, .2, .25, .3]:
-            rec.delta = delta
-            r = recall_at(rec, truth["train"])
-            grid_log.append({"delta": delta, "train R@10": r})
-            print(f"  delta {delta:<5} train R@10 {r:.4f}", flush=True)
-        best_delta = max(grid_log, key=lambda l: l["train R@10"])["delta"]
+        grid_log, best_delta = delta_grid(rec, truth["train"], [0, .025, .05, .075, .1, .125, .15, .2, .25, .3])
         print(f"  best delta {best_delta}")
 
         print("\n[2] validation, fair tie-breaking", flush=True)
-        flat_all = rec.flat.clone()
-        configs = {"layered (current)": (None, False), "union only": (0., True),
-                   "hybrid, delta 0": (0., False), f"hybrid, delta {best_delta}": (best_delta, False)}
-        out = {"delta grid": grid_log, "best delta": best_delta}
-        for name, (delta, union_only) in configs.items():
-            rec.delta = delta
-            rec.flat = torch.ones_like(flat_all) if union_only else flat_all  # 모두 flat로 보면 모든 쌍이 합집합
-            table, _ = evaluate(rec, truth["val"], fair_model_lists(rec, list(truth["val"])))
-            rec.flat = flat_all
-            out[name] = table.round(4).to_dict(orient="index")
-            print(f"\n== {name} ==\n" + table[["R@10", "nDCG@10", "MRR", "n"]].to_string(float_format="%.4f"), flush=True)
+        configs = {"layered (current)": (None, LAYER_W, False), "union only": (0., LAYER_W, True),
+                   "hybrid, delta 0": (0., LAYER_W, False), f"hybrid, delta {best_delta}": (best_delta, LAYER_W, False)}
+        res = val_compare(rec, truth["val"], configs)
+        out = {"delta grid": grid_log, "best delta": best_delta} | {n: t.round(4).to_dict(orient="index") for n, (t, _) in res.items()}
         save(out, "results/flat.json")
         sys.exit()
 
     if sys.argv[1:] == ["flat_onehot"]:
-        from perfume_recommendation import FINAL_W
+        from perfume_recommendation import LAYER_W
         rec.IDF_weight = IDF_weight
         rec.build_DB(1.)
         q = list(tune_truth)
         grid_log = []
         print("\n[1] delta grid for the one-hot baseline (train sample, Recall@10)", flush=True)
         for delta in [None, 0, .05, .1, .15, .2, .25, .3, .4, .5]:
-            lists = onehot_lists(rec, FINAL_W, q, delta=delta)
+            lists = onehot_lists(rec, LAYER_W, q, delta=delta)
             r = float(np.mean([score_query(l, tune_truth[x])["R@10"] for x, l in zip(q, lists)]))
             grid_log.append({"delta": delta, "train R@10": r})
             print(f"  delta {str(delta):<5} train R@10 {r:.4f}", flush=True)
@@ -150,40 +162,28 @@ if __name__ == "__main__":
         sys.exit()
 
     if sys.argv[1:] == ["flat_w"]:
-        from perfume_recommendation import FINAL_W
+        from perfume_recommendation import LAYER_W
         delta0 = json.load(open("results/flat.json"))["best delta"]
         rec.IDF_weight = IDF_weight
         rec.build_DB(1.)
         print(f"\n[1] Nelder-Mead on W, hybrid (delta {delta0})", flush=True)
         rec.delta = delta0
-        W_hybrid = tune_W(rec, tune_truth, FINAL_W, log)
+        W_hybrid = tune_W(rec, tune_truth, LAYER_W, log)
         print(f"  W {W_hybrid}  ({len(log)} evals)")
 
         print("\n[2] delta grid on train with the new W", flush=True)
         rec.set_layer_weights(W_hybrid)
-        grid_log = []
-        for delta in [.075, .1, .125, .15, .175, .2]:
-            rec.delta = delta
-            grid_log.append({"delta": delta, "train R@10": recall_at(rec, truth["train"])})
-            print(f"  delta {delta:<5} train R@10 {grid_log[-1]['train R@10']:.4f}", flush=True)
-        delta1 = max(grid_log, key=lambda l: l["train R@10"])["delta"]
+        grid_log, delta1 = delta_grid(rec, truth["train"], [.075, .1, .125, .15, .175, .2])
 
         print("\n[3] validation, fair tie-breaking", flush=True)
-        flat_all = rec.flat.clone()
-        configs = {"union only": (0., FINAL_W, True), f"hybrid, FINAL_W, delta {delta0}": (delta0, FINAL_W, False),
+        configs = {"union only": (0., LAYER_W, True), f"hybrid, LAYER_W, delta {delta0}": (delta0, LAYER_W, False),
                    f"hybrid, re-tuned W, delta {delta1}": (delta1, W_hybrid, False)}
+        res = val_compare(rec, truth["val"], configs)
         out = {"W_hybrid": W_hybrid, "W evals": len(log), "delta grid": grid_log, "delta": delta1}
-        per_query, q = {}, list(truth["val"])
-        for name, (delta, W, union_only) in configs.items():
-            rec.delta = delta
-            rec.set_layer_weights(W)
-            rec.flat = torch.ones_like(flat_all) if union_only else flat_all
-            lists = fair_model_lists(rec, q)
-            rec.flat = flat_all
-            table, _ = evaluate(rec, truth["val"], lists)
-            per_query[name] = np.array([[score_query(l, truth["val"][x])[m] for m in ("R@10", "nDCG@10")] for x, l in zip(q, lists)])
-            out[name] = table.round(4).to_dict(orient="index")
-            print(f"\n== {name} ==\n" + table[["R@10", "nDCG@10", "MRR", "n"]].to_string(float_format="%.4f"), flush=True)
+        out |= {n: t.round(4).to_dict(orient="index") for n, (t, _) in res.items()}
+        q = list(truth["val"])
+        per_query = {n: np.array([[score_query(l, truth["val"][x])[m] for m in ("R@10", "nDCG@10")] for x, l in zip(q, lists)])
+                     for n, (_, lists) in res.items()}
         names = list(configs)
         print("\npaired bootstrap on validation (a − b, 95% CI)")
         for a, b in [(names[1], names[0]), (names[2], names[0]), (names[2], names[1])]:

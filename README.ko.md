@@ -5,15 +5,9 @@
 
 # Perfume Recommendation with Note Embeddings
 
-향수의 **Top / Middle / Base 노트만으로** 비슷한 향의 향수를 찾아 주는 추천 모델입니다.
-노트 이름을 키워드처럼 맞춰 보는 대신, sentence embedding 모델로 노트 하나하나를 벡터로 바꿔서 "향이 비슷한 노트"끼리 가까워지게 만듭니다.
+향수의 Top / Middle / Base 노트를 sentence embedding으로 바꿔서 향수 사이의 유사도를 측정하는 모델입니다.
 
 ![v2 model architecture](docs/model_architecture.png)
-
-**주요 특징**
-- Fragrantica 향수 137,668개 (2026년 데이터), 노트 2,589종
-- Fragrantica 회원들의 **"Smells like this" 투표**를 정답으로 평가 (Recall@K, nDCG@10, MRR)
-- 전체 DB 검색이 행렬곱 한 번으로 끝남 (Apple silicon GPU에서 쿼리 512개에 약 0.25초)
 
 ## 목차
 1. [개요](#1-개요)
@@ -52,10 +46,8 @@
 | 노트 | 가장 가까운 노트 |
 |---|---|
 | bergamot | white bergamot (0.92), bergamot blossom (0.90), sicilian bergamot (0.88), rind bergamot (0.88) |
-| oud | agarwood (oud) (0.92), agarwood (0.87), indian oud (0.84), australian oud (0.81) |
 | tonka bean | tonka (0.99), coumarin (0.89), kumbaru (0.81), sweet almond (0.72) |
 | iso e super | orbitone (0.71), amberketal (0.64), transparent woods (0.64), amberwood (0.63) |
-| hedione | paradisone (0.73), wild jasmine (0.70), jasmine (0.69), indonesian jasmine (0.69) |
 | orange blossom | citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83) |
 
 > **결과 요약**
@@ -65,8 +57,6 @@
 ---
 
 ## 2. 설치 및 사용법
-
-Python 3.11 이상이 필요합니다 (3.13에서 테스트했고, 패키지 버전은 `requirements.txt`에 고정되어 있습니다). GPU는 없어도 되며, Apple silicon(MPS)과 CUDA를 자동으로 사용합니다.
 
 ```bash
 git clone https://github.com/junminkim1111/perfume-note-embeddings.git
@@ -224,10 +214,7 @@ Q'_j = \sum_i W_{ij}\, \hat q_i, \qquad Q' = [Q'_T, Q'_M, Q'_B] \in \mathbb{R}^{
 $$
 
 - 쿼리 $B$개는 $(B \times 1152) \cdot (1152 \times N)$ 행렬곱 한 번과 `torch.topk`로 처리하고, 쿼리 향수 자신은 결과에서 뺍니다.
-- $D$는 $\hat d_\ell = \mathrm{norm}(S_\ell E)$로 1초 정도면 만들어집니다 ($S_\ell$: 노트 가중치로 이루어진 $N \times V$ sparse 행렬).
-- $W$를 바꿔도 $D$는 다시 만들 필요가 없습니다.
 - 노트 전체 집합 벡터는 두 번째 행렬 $U \in \mathbb{R}^{N \times 384}$로 따로 두고, 배치마다 두 행렬곱을 계산해 flat 여부에 따라 고릅니다.
-- 이 규모에서는 FAISS 같은 approximate nearest neighbor 인덱스가 필요 없습니다. 13만 개 벡터에 대한 exact search도 GPU 행렬곱 한 번이면 됩니다.
 
 ---
 
@@ -286,10 +273,14 @@ $w_n = \mathrm{IDF}(n)^{\gamma}\,\big(\alpha + (1-\alpha)\,v_n/100\big)$
 
 ### 5.3 Layer 가중치 W
 $W$는 대칭이라 자유 원소가 6개입니다.
-- softplus로 변환한 파라미터를 Nelder-Mead(adaptive, 225회 평가)로 최적화했습니다. 시작점은 이전 버전에서 손으로 정한 $W$입니다.
+- softplus로 변환한 파라미터를 Nelder-Mead(adaptive, 225회 평가)로 최적화했습니다.
 - 평가 한 번을 3초 정도로 유지하려고, 목적함수는 train 쿼리 중 고정된 무작위 10,000개로 계산했습니다.
 
-![Initial vs tuned W](docs/figures/layer_weights.png)
+```python
+W = [[0.308, 0.023, 0.009],   # 쿼리 Top    vs. 후보 Top / Middle / Base
+     [0.023, 0.404, 0.021],   # 쿼리 Middle
+     [0.009, 0.021, 0.184]]   # 쿼리 Base   (원소 합 1)
+```
 
 - 튜닝한 $W$는 거의 대각 행렬입니다. 같은 layer끼리 비교하는 것이 거의 전부이고, Middle(heart) layer가 가장 중요합니다.
 - $W$ 튜닝으로 test에서 Recall@10 +0.012, nDCG@10 +0.012가 올랐고, 둘 다 유의합니다 (6장).

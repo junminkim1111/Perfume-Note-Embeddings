@@ -1,6 +1,6 @@
-"""v2: 새 데이터(data/perfumes_clean.csv) + IDF 가중 평균 + 1152차원 행렬곱 검색 (handoff 5.3, 5.5)
-최종 설정: MiniLM name+desc 노트 임베딩, IDF만 (회원 투표 가중치 안 씀, α_min = 1), FINAL_W,
-flat 향수가 낀 쌍은 노트 전체 집합으로 비교 (FINAL_DELTA)"""
+"""노트 임베딩 향수 추천 (README 4장).
+MiniLM name+desc 노트 임베딩, IDF 가중 평균 (회원 투표 가중치 안 씀, α_min = 1), 레이어 가중치 LAYER_W,
+flat 향수가 낀 쌍은 노트 전체 집합으로 비교 (FLAT_DELTA)"""
 import warnings
 import numpy as np
 import pandas as pd
@@ -10,25 +10,24 @@ from scipy.sparse import csr_matrix
 from functions import parse_notes, merge_notes, get_doc_IDF_weights, get_note_weights
 from preprocess import LAYERS, fill_layers
 
-INITIAL_W = [[0.8, 0.25, 0.1],  # v2의 W. 튜닝 시작점이자 비교 기준
+V1_LAYER_W = [[0.8, 0.25, 0.1],  # v1에서 손으로 정한 W. 튜닝 시작점이자 비교 기준
              [0.25, 1., 0.35],
              [0.1, 0.35, 1.2]]
-FINAL_W = [[0.3076, 0.0228, 0.0085],  # IDF만 설정으로 튜닝 (results/idf_only.json)
+LAYER_W = [[0.3076, 0.0228, 0.0085],  # train에서 튜닝 (README 5.3)
            [0.0228, 0.4044, 0.0209],
            [0.0085, 0.0209, 0.1836]]
-FINAL_DELTA = 0.125  # flat 쌍의 합집합 cosine에서 빼는 값 (train에서 튜닝, results/flat.json)
+FLAT_DELTA = 0.125  # flat 쌍의 합집합 cosine에서 빼는 값, train에서 튜닝 (README 5.4)
 
 
 class Recommender:
-    def __init__(self, dataset, model, device, alpha_min=1., layer_weights=FINAL_W, IDF_weight=None, E=None, delta=FINAL_DELTA):
+    def __init__(self, dataset, model, device, alpha_min=1., layer_weights=LAYER_W, IDF_weight=None, E=None, delta=FLAT_DELTA):
         """delta: None이면 모든 쌍을 레이어별로 비교한다.
         숫자면 flat 향수가 낀 쌍은 노트 전체 집합(합집합)끼리 비교하고, 점수에서 delta를 뺀다
         (합집합 cosine이 레이어별 점수보다 체계적으로 높아서 같은 척도로 맞추는 값)."""
         self.dataset = dataset.reset_index(drop=True)
         self.device = device
         self.delta = delta
-        flat = self.dataset["is_flat"].values if "is_flat" in self.dataset else np.zeros(len(self.dataset), bool)
-        self.flat = torch.tensor(flat.astype(bool), device=device)
+        self.flat = torch.tensor(self.dataset["is_flat"].values.astype(bool), device=device)
         self.row_of = {pid: i for i, pid in enumerate(self.dataset["id"])}
         self.layers = [[parse_notes(v) for v in row] for row in zip(*(self.dataset[c] for c in LAYERS))]
         self.IDF_weight = IDF_weight or get_doc_IDF_weights(self.dataset)
@@ -71,11 +70,11 @@ class Recommender:
         q = q.view(len(q), 3, -1)
         return torch.einsum("ij,bid->bjd", self.W, q).reshape(len(q), -1)
 
-    def scores(self, q, qu=None, q_flat=None):
+    def scores(self, q, qu, q_flat):
         """쿼리 레이어 임베딩 q (B, 3·d) -> 점수 (B, N).
         delta가 있으면 쿼리나 후보가 flat인 쌍은 합집합 임베딩 qu (B, d)끼리의 cosine − delta"""
         scores = self.query_vectors(q) @ self.D.T
-        if self.delta is not None and qu is not None:
+        if self.delta is not None:
             mixed = q_flat[:, None] | self.flat[None, :]
             scores = torch.where(mixed, qu @ self.U.T - self.delta, scores)
         return scores
@@ -86,12 +85,12 @@ class Recommender:
 
     def search_rows(self, rows, k):
         """DB 향수 쿼리 -> 자기 자신을 뺀 상위 k개 (점수, 행 번호)"""
-        return self.search(self.D[rows], k, exclude_rows=rows, qu=self.U[rows], q_flat=self.flat[rows])
+        return self.search(self.row_scores(rows), k, exclude_rows=rows)
 
-    def search(self, q, k, exclude_rows=None, qu=None, q_flat=None):
-        scores = self.scores(q, qu, q_flat)  # (B, N)
+    def search(self, scores, k, exclude_rows=None):
+        """점수 (B, N) -> 상위 k개 (점수, 행 번호)"""
         if exclude_rows is not None:
-            scores[torch.arange(len(q)), exclude_rows] = -torch.inf
+            scores[torch.arange(len(scores)), exclude_rows] = -torch.inf
         top_scores, top_rows = torch.topk(scores, k)
         return top_scores.cpu(), top_rows.cpu()
 
@@ -114,7 +113,7 @@ class Recommender:
         q_flat = torch.tensor([sum(map(bool, layers)) == 1], device=self.device)  # 한 레이어만 입력하면 flat
         _, layers = fill_layers(*layers, {})
         qu = self.embed([[merge_notes(*layers)]], self.alpha_min)
-        top_scores, top_rows = self.search(self.embed([layers], self.alpha_min), k, qu=qu, q_flat=q_flat)
+        top_scores, top_rows = self.search(self.scores(self.embed([layers], self.alpha_min), qu, q_flat), k)
         return top_scores[0], torch.from_numpy(self.dataset["id"].values[top_rows[0].numpy()])
 
     def display(self, title, scores, ids):
