@@ -5,11 +5,10 @@
 
 <h1 align="center">Perfume Recommendation with Note Embeddings</h1>
 
-<p align="center">A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings</p>
+<p align="center">A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings. On a test split built from Fragrantica's "Smells like this" votes, the embedding model outperforms a model that only checks which note words are present</p>
 
 <p align="center"><img src="docs/figures/note_map.png" alt="Note embedding map"></p>
 
-<p align="center">On a test split built from Fragrantica's "Smells like this" votes, the embedding model outperforms a model that only checks which note words are present</p>
 
 ## Contents
 1. [Overview](#1-overview)
