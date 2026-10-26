@@ -79,6 +79,13 @@ class Recommender:
             scores = torch.where(mixed, qu @ self.U.T - self.delta, scores)
         return scores
 
+    def self_scores(self, q, qu, q_flat):
+        """쿼리와 쿼리 자신의 점수 (B,). 보여 줄 점수를 이것으로 나누면 노트가 같은 향수가 1.0 (순위는 그대로)"""
+        s = (self.query_vectors(q) * q).sum(1)
+        if self.delta is not None:
+            s = torch.where(q_flat, (qu * qu).sum(1) - self.delta, s)
+        return s
+
     def row_scores(self, rows):
         """DB 향수(행 번호)를 쿼리로 쓸 때의 점수 (B, N)"""
         return self.scores(self.D[rows], self.U[rows], self.flat[rows])
@@ -95,14 +102,15 @@ class Recommender:
         return top_scores.cpu(), top_rows.cpu()
 
     def recommend_ids(self, ids, k=5):
-        """DB 향수 id 목록 -> (점수, 추천 id), 자기 자신 제외"""
+        """DB 향수 id 목록 -> (점수, 추천 id), 자기 자신 제외. 점수는 쿼리 자기 점수로 나눈 값"""
         rows = torch.tensor([self.row_of[i] for i in ids], device=self.device)
         top_scores, top_rows = self.search_rows(rows, k)
-        return top_scores, torch.from_numpy(self.dataset["id"].values[top_rows.numpy()])
+        top_scores /= self.self_scores(self.D[rows], self.U[rows], self.flat[rows]).cpu()[:, None]
+        return top_scores,torch.from_numpy(self.dataset["id"].values[top_rows.numpy()])
 
     def recommend_notes(self, top=(), middle=(), base=(), k=5):
         """직접 입력: 투표 가중치가 없으므로 IDF만 쓴다. 빈 레이어는 나머지 합집합 (D2).
-        DB에 없는 노트는 임베딩이 없으므로 경고하고 뺀다."""
+        DB에 없는 노트는 임베딩이 없으므로 경고하고 뺀다. 점수는 쿼리 자기 점수로 나눈 값."""
         layers = [{n.strip().lower(): 0 for n in names} for names in (top, middle, base)]
         unknown = sorted({n for layer in layers for n in layer if n not in self.note_idx})
         if unknown:
@@ -113,14 +121,25 @@ class Recommender:
         q_flat = torch.tensor([sum(map(bool, layers)) == 1], device=self.device)  # 한 레이어만 입력하면 flat
         _, layers = fill_layers(*layers, {})
         qu = self.embed([[merge_notes(*layers)]], self.alpha_min)
-        top_scores, top_rows = self.search(self.scores(self.embed([layers], self.alpha_min), qu, q_flat), k)
-        return top_scores[0], torch.from_numpy(self.dataset["id"].values[top_rows[0].numpy()])
+        q = self.embed([layers], self.alpha_min)
+        top_scores, top_rows = self.search(self.scores(q, qu, q_flat), k)
+        top_scores /= self.self_scores(q, qu, q_flat).cpu()[:, None]
+        return top_scores[0],torch.from_numpy(self.dataset["id"].values[top_rows[0].numpy()])
 
-    def display(self, title, scores, ids):
+    def display(self, title, scores, ids, show_notes=False):
+        """show_notes면 향수마다 노트도 붙인다 (flat 향수는 세 레이어가 같으므로 한 번만)"""
         print("***" * 10, title, "***" * 10)
         for rank, (s, pid) in enumerate(zip(scores.tolist(), ids.tolist()), 1):
-            r = self.dataset.iloc[self.row_of[pid]]
-            print(f"NO.{rank} {r['name']} @ {r['brand']} (id {pid}) / Similarity Score: {s:.3f}")
+            row = self.row_of[pid]
+            r = self.dataset.iloc[row]
+            line = f"NO.{rank} {r['name']} @ {r['brand']} (id {pid}) / Similarity Score: {s:.3f}"
+            if show_notes:
+                layers = self.layers[row]
+                if self.flat[row]:
+                    line += f" | notes: {', '.join(layers[0])}"
+                else:
+                    line += " | " + " / ".join(f"{l[0].upper()}: {', '.join(n)}" for l, n in zip(LAYERS, layers))
+            print(line)
         print()
 
 
