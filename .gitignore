@@ -11,4 +11,4 @@ results/
 src/make_figures.py
 src/tests.py
 src/compare_embeddings.py
-.vscode/
+.vscode/   
