@@ -1,5 +1,6 @@
 from collections import Counter
 import gc
+import json
 import math
 import os
 
@@ -125,4 +126,16 @@ def get_E(key, input_type, texts, device):
         E = model.encode(texts, convert_to_numpy=True, batch_size=64, **kwargs)
         del model; gc.collect(); torch.mps.empty_cache() if device.type == "mps" else None
         return E
-    return cached(f"cache/emb_{key}_{input_type}.pt", encode)
+    path = f"cache/emb_{key}_{input_type}.pt"
+    E = cached(path, encode)
+    # 캐시를 만들 때의 입력 텍스트와 지금 텍스트가 다르면 노트와 벡터가 어긋난다 (노트 수가 같으면 에러 없이)
+    if texts is not None:
+        check = path[:-3] + ".json"
+        if os.path.exists(check):
+            with open(check, encoding="utf-8") as f:
+                if json.load(f) != list(texts):
+                    raise RuntimeError(f"{path}가 지금 노트 목록/설명과 다르다. 캐시를 지우고 다시 실행")
+        else:
+            with open(check, "w", encoding="utf-8") as f:
+                json.dump(list(texts), f, ensure_ascii=False)
+    return E

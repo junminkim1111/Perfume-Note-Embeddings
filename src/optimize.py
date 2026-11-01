@@ -2,7 +2,7 @@
 1) (α_min, γ) 격자 (기본 W)  2) W Nelder-Mead (학습 표본 10k)  3) 튜닝한 W로 격자 재확인
 4) 검증 세트로 최종 선택  5) 테스트 세트 1회 측정
 γ: IDF 지수. IDF^γ를 IDF_weight로 넘긴다 (γ = 0이면 IDF 끔).
-python src/optimize.py idf_only   # IDF만 (α_min 1, γ 1)에 W를 따로 튜닝해서 튜닝된 v2(투표 사용)와 비교
+python src/optimize.py idf_only   # IDF만 (α_min 1, γ 1)에 W를 따로 튜닝해서 튜닝된 v2(투표 사용)와 비교 (기본 모드 먼저 실행: results/tuned_params.json)
 python src/optimize.py flat       # flat 향수가 낀 쌍은 합집합으로 비교, delta를 train에서 튜닝하고 validation에서 비교
 python src/optimize.py flat_w     # 위 혼합 방식에서 W를 다시 튜닝 + 합집합만 쓰는 방식과 부트스트랩 비교 (flat 먼저 실행)
 python src/optimize.py flat_onehot  # 단어 유무 기준선(원-핫)에도 같은 flat 규칙을 주고 그 delta를 train에서 튜닝"""
