@@ -1,0 +1,374 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Perfume Note Embeddings</title>
+<meta name="description" content="Measuring perfume similarity by embedding Top / Middle / Base notes, evaluated on Fragrantica's 'Smells like this' votes.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Spline+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+  MathJax = { tex: { inlineMath: [["\\(", "\\)"]] }, svg: { fontCache: "global" } };
+</script>
+<script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" defer></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <div class="headrow">
+      <div class="kicker">Recommender · Sentence embeddings</div>
+      <div class="lang">
+        <a href="index.html" aria-current="page">🇺🇸 ENG</a>
+        <a href="ko.html" lang="ko" onclick="this.href = 'ko.html' + location.hash">🇰🇷 KOR</a>
+      </div>
+    </div>
+    <h1>Perfume Recommendation with Note Embeddings</h1>
+    <p class="subtitle">Two perfumes that list the same materials under different names should still look alike. Embed every note, compare perfumes layer by layer, and check the result against what people who smelled them voted.</p>
+    <div class="links">
+      <a class="btn" href="https://github.com/junminkim1111/perfume-note-embeddings">Code</a>
+      <a class="btn" href="https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes">Dataset</a>
+    </div>
+  </div>
+</header>
+
+<nav>
+  <div class="wrap">
+    <a href="#overview">Overview</a>
+    <a href="#method">Method</a>
+    <a href="#data">Data</a>
+    <a href="#tuning">Tuning</a>
+    <a href="#results">Results</a>
+    <a href="#examples">Examples</a>
+    <a href="#limitations">Limitations</a>
+  </div>
+</nav>
+
+<!-- ========== OVERVIEW ========== -->
+<section id="overview">
+  <div class="wrap">
+    <div class="kicker">Overview</div>
+    <h2>Keyword matching only sees <em>exact names.</em></h2>
+    <p class="lead">The simplest way to recommend a perfume from its notes is <b>word presence</b>: treat each note name as a keyword and score two perfumes by how many they share (TF-IDF cosine over note names). It misses the relations a perfumer would see.</p>
+
+    <div class="cards">
+      <div class="card">
+        <div class="kicker">Problem 1</div>
+        <h4>Same material, different name</h4>
+        <p><code>bergamot</code>, <code>sicilian bergamot</code>, <code>calabrian bergamot</code> and <code>bergamot rind</code> are four unrelated keywords. The data has dozens of such variants (<code>oud</code>, <code>agarwood (oud)</code>, <code>indian oud</code>, …).</p>
+      </div>
+      <div class="card">
+        <div class="kicker">Problem 2</div>
+        <h4>Related materials</h4>
+        <p><code>tonka bean</code> and <code>coumarin</code>, or <code>iso e super</code> and <code>orbitone</code>, smell alike but share no characters.</p>
+      </div>
+      <div class="card">
+        <div class="kicker">Problem 3</div>
+        <h4>Similar spelling, different smell</h4>
+        <p><code>orange</code> (citrus) and <code>orange blossom</code> (white floral) should not be close just because they share a word.</p>
+      </div>
+    </div>
+
+    <p>This project turns each note into a vector with a sentence-embedding model, so similar-smelling notes end up close together even when their names differ. A perfume is represented layer by layer as a weighted average of its note vectors, and perfumes are compared layer against layer.</p>
+
+    <figure>
+      <img src="figures/note_map.png" alt="2-D map of all note embeddings, colored by scent family" loading="lazy">
+      <figcaption><b>The note embedding space.</b> Each dot is one of the 2,589 notes, colored by scent family. Name variants and related materials land next to each other.</figcaption>
+    </figure>
+
+    <h3>Nearest notes in the final embedding space</h3>
+    <div class="table"><table>
+      <thead><tr><th>Note</th><th>Nearest notes (cosine similarity)</th></tr></thead>
+      <tbody>
+        <tr><td><code>bergamot</code></td><td>white bergamot (0.92), bergamot blossom (0.90), sicilian bergamot (0.88), rind bergamot (0.88)</td></tr>
+        <tr><td><code>tonka bean</code></td><td>tonka (0.99), coumarin (0.89), kumbaru (0.81), sweet almond (0.72)</td></tr>
+        <tr><td><code>iso e super</code></td><td>orbitone (0.71), amberketal (0.64), transparent woods (0.64), amberwood (0.63)</td></tr>
+        <tr><td><code>orange blossom</code></td><td>citrus blossom (0.86), bitter orange blossom (0.85), african orange flower (0.83), french orange flower (0.83)</td></tr>
+      </tbody>
+    </table></div>
+
+    <div class="stats">
+      <div class="stat"><b>137,668</b><span>perfumes in the searchable database</span></div>
+      <div class="stat"><b>2,589</b><span>distinct notes, each embedded once</span></div>
+      <div class="stat"><b>0.134</b><span>test Recall@10, vs 0.128 for word presence</span></div>
+      <div class="stat"><b>+26%</b><span>Recall@10 over the previous version (0.106)</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ========== METHOD ========== -->
+<section id="method">
+  <div class="wrap">
+    <div class="kicker">Method</div>
+    <h2>Embed the notes, <em>compare the pyramid.</em></h2>
+
+    <figure class="wide">
+      <img src="model_architecture.png" alt="Model architecture: input notes, note encoding, weighted layer mean, query vector, score and rank" loading="lazy">
+      <figcaption><b>Pipeline.</b> Notes are encoded once, averaged per layer with IDF weights, and every candidate is scored with a single matrix product.</figcaption>
+    </figure>
+
+    <ol class="steps">
+      <li><b>Note encoding.</b> Every distinct note is encoded once by <code>all-MiniLM-L6-v2</code> from the text <code>"&lt;note&gt;: &lt;short smell description&gt;"</code>.</li>
+      <li><b>Layer embedding.</b> For each of Top / Middle / Base, an IDF-weighted average of the note vectors, so rare, distinctive notes count more than ubiquitous ones like musk.</li>
+      <li><b>Layer-wise similarity.</b> A learned 3×3 matrix \(W\) weights the cosine similarity between every query layer and every candidate layer.</li>
+      <li><b>Flat perfumes.</b> If either perfume lists its notes without a pyramid, the two are compared on their whole note sets, minus a tuned offset \(\delta\).</li>
+      <li><b>Search.</b> The layer-wise score collapses into one dot product per candidate over a \(137{,}668 \times 1{,}152\) matrix.</li>
+    </ol>
+
+    <h3>1 · Note encoding</h3>
+    <div class="math">$$E_n = \mathrm{MiniLM}\big(\, n \,{:}\, \mathrm{desc}(n) \,\big) \in \mathbb{R}^{384}$$</div>
+    <p class="why"><b>Why a description?</b> A note name is one to three words. With the name alone, every model tried knows that <code>sicilian bergamot</code> is a bergamot, but places <code>iso e super</code> next to <code>eau de vie</code> and <code>hedione</code> next to <code>heliotrope</code>, because those names look alike. A short smell description puts aroma chemicals and look-alike names in the right place (<code>iso e super</code> → <code>orbitone</code>, <code>hedione</code> → <code>paradisone</code>, jasmine).</p>
+    <p class="why"><b>Why MiniLM?</b> It scored best of the four models compared (<a href="#tuning">Tuning</a>), and it is also the smallest (384-d).</p>
+
+    <h3>2 · Layer embedding (IDF-weighted mean)</h3>
+    <p>For perfume \(p\) and layer \(\ell \in \{\text{top}, \text{middle}, \text{base}\}\) with notes \(N_\ell(p)\):</p>
+    <div class="math">$$\mathrm{IDF}(n) = \log\frac{N}{\mathrm{df}(n)} + 1, \qquad \hat w_n = \frac{\mathrm{IDF}(n)}{\sum_{m \in N_\ell(p)} \mathrm{IDF}(m)}, \qquad \hat d_\ell(p) = \frac{\sum_{n} \hat w_n E_n}{\big\lVert \sum_{n} \hat w_n E_n \big\rVert}$$</div>
+    <p>\(N\) = 137,668 perfumes, \(\mathrm{df}(n)\) = number of perfumes that list note \(n\) in any layer (each perfume counts once, so a flat perfume copied into three layers does not count three times).</p>
+    <p class="why"><b>Why IDF?</b> <code>musk</code> appears in a large share of all perfumes and says little about what makes a perfume distinctive. Two perfumes that share a rare note are more likely to smell alike than two that share musk. IDF ranges from 1.97 (musk) to 12.8 (notes used by a single perfume).</p>
+
+    <h3>3 · Layer-wise similarity</h3>
+    <p>A query \(q\) and a candidate \(d\) are compared layer against layer with a symmetric \(3 \times 3\) weight matrix \(W\) whose entries sum to 1:</p>
+    <div class="math">$$\mathrm{score}(q, d) = \sum_{i,j \in \{T, M, B\}} W_{ij}\, \cos\big(\hat q_i, \hat d_j\big)$$</div>
+    <div class="layers"><span class="layer t">Top · first minutes</span><span class="layer m">Middle · heart</span><span class="layer b">Base · dry-down</span></div>
+    <p class="why"><b>Why layers?</b> A note pyramid encodes time. The same notes in a different layer make a different perfume.</p>
+    <p class="why"><b>Why a matrix and not just the diagonal?</b> Off-diagonal terms let a note that one perfume lists as a heart note match the same note listed as a base note in another, which is common because brands assign layers inconsistently. The tuned \(W\) turned out to be nearly diagonal, with Middle↔Middle weighted most.</p>
+
+    <h3>4 · Flat perfumes</h3>
+    <p>28% of perfumes list their notes without a pyramid. Copying those notes into all three layers does not work: a flat perfume's "top" holds every note while a pyramid's top holds only a few, so flat perfumes end up matching only each other. Whenever the query or the candidate is flat, the two whole note sets are compared instead:</p>
+    <div class="math">$$\mathrm{score}(q, d) = \begin{cases} \sum_{i,j} W_{ij}\, \cos\big(\hat q_i, \hat d_j\big) & \text{both } q \text{ and } d \text{ have a pyramid} \\ \cos\big(\hat u_q, \hat u_d\big) - \delta & \text{otherwise} \end{cases}$$</div>
+    <p>\(\hat u\) is the normalized IDF-weighted mean over all of a perfume's notes, and \(\delta = 0.125\).</p>
+    <p class="why"><b>Why δ?</b> A whole note set is a less noisy average than a single layer, so whole-set cosines run systematically higher than layer-wise scores. Without the offset, flat candidates crowd out pyramid candidates for every pyramid query (validation Recall@10 falls to 0.080). For a flat query every candidate uses the whole-set score, so δ does not change its ranking.</p>
+
+    <h3>5 · Search as one matrix product</h3>
+    <p>All candidate layers are precomputed and concatenated, \(D \in \mathbb{R}^{N \times 1152}\) (≈ 635 MB in float32). Because \(W\) only touches the query side, the score is a single dot product:</p>
+    <div class="math">$$Q'_j = \sum_i W_{ij}\, \hat q_i, \qquad Q' = [Q'_T, Q'_M, Q'_B] \in \mathbb{R}^{1152}, \qquad \mathrm{scores} = Q' D^\top$$</div>
+    <p>A batch of \(B\) queries is one \((B \times 1152)\cdot(1152 \times N)\) product followed by <code>torch.topk</code>; the query perfume itself is masked out. Whole-note-set vectors are a second matrix \(U \in \mathbb{R}^{N \times 384}\); both products are computed and combined with the flat mask.</p>
+  </div>
+</section>
+
+<!-- ========== DATA ========== -->
+<section id="data">
+  <div class="wrap">
+    <div class="kicker">Data</div>
+    <h2>Notes in, <em>human votes</em> as ground truth.</h2>
+
+    <h3>Perfumes</h3>
+    <p><a href="https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes">Fragrantica Perfumes: Ratings, Notes, Votes &amp; More</a> (Kaggle, updated 2026-09-20, CC BY-NC-SA 4.0): 140,228 perfumes with notes, ratings and community votes. Each note has a 0–100 member-voted prominence; <b>the model does not use these weights</b> (see <a href="#tuning">Tuning</a>), only which notes a perfume lists.</p>
+    <div class="table"><table>
+      <thead><tr><th>Notes as listed on Fragrantica</th><th class="n">Perfumes</th><th>Conversion</th></tr></thead>
+      <tbody>
+        <tr><td>Full pyramid (Top / Middle / Base)</td><td class="n">98,371</td><td>kept as is</td></tr>
+        <tr><td>Flat list only (no pyramid)</td><td class="n">38,637 (27.6%)</td><td>same notes copied into all three layers; scored on the whole note set</td></tr>
+        <tr><td>Pyramid with an empty layer</td><td class="n">660</td><td>empty layer gets the union of the other layers</td></tr>
+        <tr><td>No notes</td><td class="n">2,560</td><td>dropped</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted">Note names are lower-cased and stripped (2,592 → 2,589 distinct notes). Perfumes are identified by their Fragrantica <code>id</code>, since names are not unique.</p>
+
+    <h3>Evaluation: "Smells like this" votes</h3>
+    <p>Every Fragrantica perfume page has a "This perfume reminds me of" list, where members vote <i>agree / disagree</i> on whether two perfumes smell alike. These votes come from people who smelled the perfumes, while the model only sees note lists.</p>
+    <ul>
+      <li>740,672 (query, target) pairs with vote counts.</li>
+      <li>A pair is a <b>positive</b> if <code>agree &gt; disagree</code> and <code>agree ≥ 5</code>. Its gain is <code>agree − disagree</code>.</li>
+      <li>44,801 perfumes have at least one positive and are used as queries, split by query id into <b>train 70% / validation 15% / test 15%</b> (31,235 / 6,772 / 6,794). Every perfume stays in the searchable database whatever its split.</li>
+      <li>The page's algorithmic <b>"You might also like"</b> list is a reference point: Fragrantica's own recommender, which also uses brand and browsing behaviour.</li>
+    </ul>
+
+    <h3>Note descriptions</h3>
+    <p>One short smell description per note, written by an LLM (Claude Opus 5.5). 212 notes (8.2%) whose smell could not be identified with confidence (brand fantasy notes such as <code>powder from the moon</code>, unclear trade names) are marked <code>UNKNOWN</code> and fall back to the bare note name.</p>
+  </div>
+</section>
+
+<!-- ========== TUNING ========== -->
+<section id="tuning">
+  <div class="wrap">
+    <div class="kicker">Hyperparameter tuning</div>
+    <h2>Tune on train, choose on validation, <em>test once.</em></h2>
+
+    <p>For each query the model returns its top-100 list (query excluded). <b>The tuning objective is mean Recall@10 on the train split.</b> It counts every voted match equally, while nDCG is dominated by a few very popular perfumes whose matches have thousands of votes.</p>
+    <div class="table"><table>
+      <thead><tr><th>Metric</th><th>Definition</th></tr></thead>
+      <tbody>
+        <tr><td>Recall@K</td><td>positives in the top K / all positives of the query (K = 5, 10, 20)</td></tr>
+        <tr><td>nDCG@10</td><td>\(\sum_{\text{hits in top 10}} g / \log_2(\text{rank}+1)\) over the best achievable value, \(g = \text{agree} - \text{disagree}\)</td></tr>
+        <tr><td>MRR</td><td>\(1 / \text{rank of the first positive}\) (0 if none in the top 100)</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted">Discrete choices were compared on validation with the other settings fixed. Differences of a few thousandths were checked with a paired bootstrap over queries (2,000 resamples).</p>
+
+    <h3>Note embedding model and input text</h3>
+    <p>Four models × three input texts: the note name, the LLM description, and <code>"name: description"</code>.</p>
+    <figure>
+      <img src="figures/embedding_comparison.png" alt="Validation scores of four embedding models with three input texts" loading="lazy">
+      <figcaption><b>The description helps every model.</b> The smallest model, MiniLM, is best overall with <code>name + description</code>.</figcaption>
+    </figure>
+    <ul>
+      <li>The larger models gain most from the description (Qwen3 +0.007).</li>
+      <li>Against MiniLM with names only, adding the description gives +0.004 nDCG@10 (significant) and +0.003 Recall@10 (not significant).</li>
+      <li>Models: <code>all-MiniLM-L6-v2</code>, <code>google/embeddinggemma-300m</code> (STS prompt), <code>BAAI/bge-base-en-v1.5</code>, <code>Qwen/Qwen3-Embedding-0.6B</code> (instruction <i>"Given the name of a perfume note, represent how it smells"</i>).</li>
+    </ul>
+
+    <h3>Note weights: IDF vs. member votes</h3>
+    <p>Tried \(w_n = \mathrm{IDF}(n)^{\gamma}\,\big(\alpha + (1-\alpha)\,v_n/100\big)\) with \(\alpha = 1\) for perfumes nobody voted on and \(\alpha_{\min}\) otherwise, over \(\alpha_{\min} \in \{0, .25, .5, .75, 1\}\) × \(\gamma \in \{0, .5, 1\}\).</p>
+    <div class="table"><table>
+      <thead><tr><th>Setting (each with its own tuned W)</th><th class="n">Train R@10</th><th class="n">Val R@10</th><th class="n">Test R@10</th></tr></thead>
+      <tbody>
+        <tr><td>Votes, no IDF (\(\alpha_{\min}\) = 0.5, \(\gamma\) = 0)</td><td class="n">0.125</td><td class="n">0.128</td><td class="n">0.127</td></tr>
+        <tr class="hl"><td>IDF only (\(\alpha_{\min}\) = 1, \(\gamma\) = 1)</td><td class="n">0.121</td><td class="n">0.119</td><td class="n">0.125</td></tr>
+      </tbody>
+    </table></div>
+    <p>Once each setting gets its own tuned \(W\), the gap on test is +0.0025 Recall@10 (95% CI −0.001 to +0.006, not significant). <b>The final model uses IDF only.</b> Prominence votes are human judgements about the specific perfume; using them would let people's perception into the model through the back door, for a gain that could not be shown to be real.</p>
+
+    <h3>Layer weights W</h3>
+    <p>Six free entries (symmetric), optimized as softplus-transformed parameters with Nelder-Mead (adaptive, 225 evaluations) on a fixed sample of 10,000 train queries.</p>
+    <div class="wmat">
+      <div></div><div class="lbl" style="text-align:center">Top</div><div class="lbl" style="text-align:center">Middle</div><div class="lbl" style="text-align:center">Base</div>
+      <div class="lbl">Top</div><div class="c" style="background:#a3cdbd">.308</div><div class="c" style="background:#e8f1ec">.023</div><div class="c" style="background:#eef4f0">.009</div>
+      <div class="lbl">Middle</div><div class="c" style="background:#e8f1ec">.023</div><div class="c" style="background:#7fb8a3">.404</div><div class="c" style="background:#e8f1ec">.021</div>
+      <div class="lbl">Base</div><div class="c" style="background:#eef4f0">.009</div><div class="c" style="background:#e8f1ec">.021</div><div class="c" style="background:#c8e0d6">.184</div>
+    </div>
+    <p>Nearly diagonal: layers are compared with the same layer, and the heart layer matters most. Tuning \(W\) adds +0.012 Recall@10 and +0.012 nDCG@10 on test, both significant.</p>
+
+    <h3>Flat perfumes: δ</h3>
+    <p>Grid-searched on train Recall@10 with the tuned \(W\) fixed:</p>
+    <div class="table"><table>
+      <thead><tr><th>δ</th><th class="n">0</th><th class="n">0.05</th><th class="n">0.075</th><th class="n">0.1</th><th class="n">0.125</th><th class="n">0.15</th><th class="n">0.2</th><th class="n">0.3</th></tr></thead>
+      <tbody><tr><td>Train R@10</td><td class="n">0.083</td><td class="n">0.115</td><td class="n">0.126</td><td class="n">0.134</td><td class="n"><b>0.136</b></td><td class="n">0.135</td><td class="n">0.132</td><td class="n">0.130</td></tr></tbody>
+    </table></div>
+    <p>On validation:</p>
+    <div class="table"><table>
+      <thead><tr><th>Scoring</th><th class="n">R@10</th><th class="n">nDCG@10</th><th class="n">Flat R@10</th><th class="n">Pyramid R@10</th></tr></thead>
+      <tbody>
+        <tr><td>Layer-wise for every pair (before)</td><td class="n">0.114</td><td class="n">0.109</td><td class="n">0.057</td><td class="n">0.128</td></tr>
+        <tr><td>Whole note set for every pair</td><td class="n">0.130</td><td class="n">0.119</td><td class="n">0.123</td><td class="n">0.132</td></tr>
+        <tr><td>Hybrid, δ = 0</td><td class="n">0.080</td><td class="n">0.069</td><td class="n">0.123</td><td class="n">0.070</td></tr>
+        <tr class="hl"><td>Hybrid, δ = 0.125 (final)</td><td class="n">0.129</td><td class="n">0.121</td><td class="n">0.123</td><td class="n">0.131</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li>Flat queries double (0.057 → 0.123), and pyramid queries improve slightly.</li>
+      <li>Hybrid vs. whole note set for every pair is not a significant difference (Recall@10 −0.0005 [−0.004, +0.003]). The hybrid is kept because it uses the pyramid wherever one exists.</li>
+      <li>Re-tuning \(W\) under the hybrid rule changed nothing (+0.0001 Recall@10).</li>
+    </ul>
+    <p><b>Final settings:</b> <code>all-MiniLM-L6-v2</code> on <code>"name: description"</code>, IDF note weights, the tuned \(W\) above, whole-note-set comparison for flat perfumes with δ = 0.125.</p>
+  </div>
+</section>
+
+<!-- ========== RESULTS ========== -->
+<section id="results">
+  <div class="wrap">
+    <div class="kicker">Results</div>
+    <h2>The embedding beats <em>word presence</em> on every metric.</h2>
+    <p>Test split, 6,794 queries. <b>Word presence</b> is the same pipeline (IDF weights, layers, tuned \(W\), flat rule with its own δ = 0.2) with every note as a one-hot vector instead of an embedding. It isolates exactly what the embedding adds.</p>
+
+    <figure>
+      <img src="figures/results_comparison.png" alt="Test Recall@10 and nDCG@10 for each method" loading="lazy">
+    </figure>
+
+    <div class="table"><table>
+      <thead><tr><th>Method</th><th class="n">R@5</th><th class="n">R@10</th><th class="n">R@20</th><th class="n">nDCG@10</th><th class="n">MRR</th></tr></thead>
+      <tbody>
+        <tr><td>Random</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td><td class="n">0.000</td></tr>
+        <tr><td>Word presence (TF-IDF one-hot, same pipeline)</td><td class="n">0.108</td><td class="n">0.128</td><td class="n">0.149</td><td class="n">0.116</td><td class="n">0.154</td></tr>
+        <tr><td>Previous version: note names, hand-set W</td><td class="n">0.090</td><td class="n">0.106</td><td class="n">0.121</td><td class="n">0.099</td><td class="n">0.138</td></tr>
+        <tr><td>&nbsp;&nbsp;+ note descriptions</td><td class="n">0.092</td><td class="n">0.108</td><td class="n">0.124</td><td class="n">0.101</td><td class="n">0.139</td></tr>
+        <tr><td>&nbsp;&nbsp;+ tuned W</td><td class="n">0.103</td><td class="n">0.121</td><td class="n">0.140</td><td class="n">0.113</td><td class="n">0.152</td></tr>
+        <tr class="hl"><td>Ours: + flat handling (final)</td><td class="n">0.114</td><td class="n">0.134</td><td class="n">0.156</td><td class="n">0.124</td><td class="n">0.165</td></tr>
+        <tr class="ref"><td>Fragrantica "also liked" (reference)</td><td class="n">0.108</td><td class="n">0.125</td><td class="n">0.138</td><td class="n">0.145</td><td class="n">0.182</td></tr>
+      </tbody>
+    </table></div>
+    <p class="muted"><b>Previous version</b> (v1) used the 2024 <a href="https://www.kaggle.com/datasets/olgagmiufana1/fragrantica-com-fragrance-dataset">Fragrantica dataset</a> (24,063 perfumes) with note names only, a hand-set \(W\), and self-retrieval Hit@1 as the metric. The rows above re-run its design on the new data.</p>
+
+    <h3>Paired bootstrap (ours minus the other, 95% CI)</h3>
+    <div class="table"><table>
+      <thead><tr><th>vs.</th><th>Recall@10</th><th>nDCG@10</th></tr></thead>
+      <tbody>
+        <tr><td>Word presence</td><td><b>+0.006</b> [+0.002, +0.009]</td><td><b>+0.009</b> [+0.006, +0.012]</td></tr>
+        <tr><td>Before flat handling (+ tuned W)</td><td><b>+0.013</b> [+0.010, +0.016]</td><td><b>+0.011</b> [+0.009, +0.014]</td></tr>
+        <tr><td>Previous version's setup</td><td><b>+0.028</b> [+0.024, +0.032]</td><td><b>+0.025</b> [+0.022, +0.029]</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><b>Against word presence</b>, the embedding finds more voted matches in the top 10 and ranks them higher; both differences are significant.</li>
+      <li><b>Against the previous version</b>, the final model is +26% Recall@10 (0.106 → 0.134). Descriptions add +0.002, tuning W +0.012, flat handling +0.013.</li>
+      <li>Fragrantica's own list ranks best on nDCG/MRR, as expected: it uses browsing behaviour, brand and gender as well as notes. Its brand agreement in the top 10 is 16% versus 4% for ours. On Recall@10 and Recall@20 the note-only model is ahead (0.134 vs 0.125, 0.156 vs 0.138).</li>
+    </ul>
+
+    <h3>Flat vs. pyramid perfumes</h3>
+    <figure>
+      <img src="figures/flat_vs_pyramid.png" alt="Recall@10 for flat and pyramid queries before and after flat handling" loading="lazy">
+      <figcaption><b>Flat queries were the weak spot.</b> Before flat handling the 1,382 flat queries reached Recall@10 0.066; whole-note-set comparison brings them to 0.121, on par with word presence (0.119). The 5,412 pyramid queries also improve slightly (0.135 → 0.137, word presence 0.130).</figcaption>
+    </figure>
+  </div>
+</section>
+
+<!-- ========== EXAMPLES ========== -->
+<section id="examples">
+  <div class="wrap">
+    <div class="kicker">Examples</div>
+    <h2>Matches only <em>the embedding</em> finds.</h2>
+    <p>Voted matches on the test split that the final model ranks in its top 10 while word presence ranks them below 30. The notes the two perfumes do <i>not</i> share are mostly the same materials under different names.</p>
+    <div class="table"><table>
+      <thead><tr><th>Query → voted match (agree votes)</th><th class="n">Ours</th><th class="n">Word presence</th><th>Notes that differ only by name</th></tr></thead>
+      <tbody>
+        <tr><td>Versus Pour Homme (In The Box) → <b>Versace Pour Homme</b> (209)</td><td class="n">#10</td><td class="n">&gt;100</td><td><code>blue hyacinth</code>/<code>hyacinth</code>, <code>crystal amber</code>/<code>amber</code>, <code>may rose</code>/<code>rose de mai</code>, <code>sage</code>/<code>clary sage</code>, <code>sicilian lemon</code>/<code>lemon</code></td></tr>
+        <tr><td>Opium EDP 2009 → <b>Opium EDT 2009</b> (147)</td><td class="n">#5</td><td class="n">&gt;100</td><td><code>myrhh</code> (typo in the data)/<code>myrrh</code>, <code>vanille</code>/<code>vanilla</code>, <code>mandarin orange</code>/<code>tangerine</code></td></tr>
+        <tr><td>XS (2018) → <b>XS</b> (Rabanne) (190)</td><td class="n">#3</td><td class="n">&gt;100</td><td><code>geranium</code>/<code>bourbon geranium</code>, <code>juniper berries</code>/<code>juniper</code></td></tr>
+        <tr><td>Van Py Rhum (Lorenzo Pazzaglia) → <b>X Xandal</b> (Aromatix × French Avenue) (174)</td><td class="n">#4</td><td class="n">&gt;100</td><td><code>agarwood (oud)</code>/<code>agarwood</code>, <code>tahitian vanilla</code>/<code>vanilla absolute</code></td></tr>
+      </tbody>
+    </table></div>
+
+    <p>Counting every voted match in the test split, the two models disagree on a minority of hits, and the embedding finds more of the ones the other misses:</p>
+    <div class="table"><table>
+      <thead><tr><th>Voted matches in the top 10</th><th class="n">Both</th><th class="n">Ours only</th><th class="n">Word presence only</th></tr></thead>
+      <tbody>
+        <tr><td>Pyramid queries</td><td class="n">1,466</td><td class="n"><b>302</b></td><td class="n">221</td></tr>
+        <tr><td>Flat queries</td><td class="n">253</td><td class="n"><b>67</b></td><td class="n">50</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>A typical recommendation list</h3>
+    <p>Top 5 for <b>Creed Aventus</b> (<code>bergamot, black currant, apple, pineapple, patchouli, birch, musk, oakmoss, ambroxan, …</code>):</p>
+    <div class="table"><table>
+      <thead><tr><th class="n">#</th><th>Recommendation</th></tr></thead>
+      <tbody>
+        <tr><td class="n">1</td><td>Mazajyy @ Zodiac</td></tr>
+        <tr><td class="n">2</td><td>Niche 01 Extreme @ Zodiac</td></tr>
+        <tr><td class="n">3</td><td>Athens @ OPUX</td></tr>
+        <tr><td class="n">4</td><td>Bergamot Patchouli @ Loris Parfum</td></tr>
+        <tr><td class="n">5</td><td>Veritas @ Lidl</td></tr>
+      </tbody>
+    </table></div>
+    <p>All five are Aventus-inspired dupes that copy its note list almost verbatim, which is the right answer from the notes' point of view. The perfumes members vote as smelling like Aventus are mostly other popular perfumes with different note lists, which a note-only model rarely retrieves.</p>
+  </div>
+</section>
+
+<!-- ========== LIMITATIONS ========== -->
+<section id="limitations">
+  <div class="wrap">
+    <div class="kicker">Limitations</div>
+    <h2>What a note list <em>can't tell you.</em></h2>
+    <div class="cards">
+      <div class="card"><h4>Flat perfumes</h4><p>28% have no layer information, so for them the model is a plain whole-note-set embedding, tied to layer-wise scores only through the single offset δ.</p></div>
+      <div class="card"><h4>Notes are not the smell</h4><p>Members vote after smelling; the model sees a note list brands write for marketing. Fragrantica's own recommender reaches only Recall@10 0.125, so absolute scores are low for any method.</p></div>
+      <div class="card"><h4>The labels favour clones</h4><p>Many voted matches are dupes or flankers that copy the original's note list. Exact name overlap already finds these, which limits how much better note understanding can show up. Popular perfumes weigh more in nDCG.</p></div>
+      <div class="card"><h4>LLM-written descriptions</h4><p>The 2,589 descriptions were generated, not written by experts, and have not all been checked by hand. 212 notes have no description.</p></div>
+      <div class="card"><h4>Custom queries</h4><p>Only notes that occur in the database can be used. Unknown notes are dropped.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <ul>
+      <li>Code: <a href="https://github.com/junminkim1111/perfume-note-embeddings/blob/main/LICENSE">MIT License</a>.</li>
+      <li>Data: <a href="https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes">Fragrantica Perfumes: Ratings, Notes, Votes &amp; More</a>, CC BY-NC-SA 4.0. <code>data/note_descriptions.csv</code> is shared under the same license. All perfume data originates from <a href="https://www.fragrantica.com">Fragrantica</a>.</li>
+      <li>Embedding models: <a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">all-MiniLM-L6-v2</a>, <a href="https://huggingface.co/google/embeddinggemma-300m">EmbeddingGemma</a>, <a href="https://huggingface.co/BAAI/bge-base-en-v1.5">bge-base-en-v1.5</a>, <a href="https://huggingface.co/Qwen/Qwen3-Embedding-0.6B">Qwen3-Embedding-0.6B</a>.</li>
+    </ul>
+  </div>
+</footer>
+
+</body>
+</html>
