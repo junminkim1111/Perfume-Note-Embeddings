@@ -7,7 +7,11 @@
 
 <p align="center">향수의 Top / Middle / Base 노트를 sentence embedding으로 바꿔서 향수 사이의 유사도를 측정하는 모델. Fragrantica "smells like this" 투표 결과 데이터로 실행된 test에서 Embedding을 이용한 모델이 노트 단어의 유무 만을 판단한 모델보다 높은 성능을 보입니다.</p>
 
+<p align="center"><img src="docs/figures/note_map.png" alt="Note embedding map"></p>
+
 <p align="center"><b><a href="https://junminkim1111.github.io/Perfume-Note-Embeddings/ko.html">프로젝트 페이지</a></b>: 방법, 데이터셋, 튜닝, 결과, 예시, 한계</p>
+
+![v2 model architecture](docs/model_architecture.png)
 
 ## 목차
 1. [설치 및 사용법](#1-설치-및-사용법)
