@@ -7,7 +7,7 @@
 
 <p align="center">A model that measures how similar two perfumes are by turning their Top / Middle / Base notes into sentence embeddings. On a test split built from Fragrantica's "Smells like this" votes, the embedding model outperforms a model that only checks which note words are present</p>
 
-<p align="center"><b><a href="https://junminkim1111.github.io/perfume-note-embeddings/">Project page</a></b>: method, datasets, tuning, results, examples and limitations</p>
+<p align="center"><b><a href="https://junminkim1111.github.io/Perfume-Note-Embeddings/">Project page</a></b>: method, datasets, tuning, results, examples and limitations</p>
 
 
 ## Contents
