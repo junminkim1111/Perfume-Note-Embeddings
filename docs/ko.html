@@ -12,26 +12,12 @@
   MathJax = { tex: { inlineMath: [["\\(", "\\)"]] }, svg: { fontCache: "global" } };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/plotly.js-gl3d-dist-min@2.35.2/plotly-gl3d.min.js" defer></script>
-<script src="notemap.js" defer></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header>
-  <div class="map">
-    <div id="notemap" role="img" aria-label="노트 2,589개 embedding의 3D 지도"></div>
-    <div class="note-card" id="note-card" hidden>
-      <button class="nc-close" aria-label="닫기">×</button>
-      <div class="nc-fam"></div>
-      <h3 class="nc-name"></h3>
-      <p class="nc-desc"></p>
-      <div class="nc-label"></div>
-      <ol class="nc-nn"></ol>
-    </div>
-    <p class="map-hint">드래그로 회전 · 점을 눌러 보기</p>
-  </div>
-  <div class="wrap hero">
+  <div class="wrap">
     <div class="headrow">
       <div class="kicker">Recommender · Sentence embeddings</div>
       <div class="lang">
@@ -39,13 +25,11 @@
         <a href="ko.html" aria-current="page">🇰🇷 KOR</a>
       </div>
     </div>
-    <div class="hero-text">
     <h1>Perfume Recommendation with Note Embeddings</h1>
     <p class="subtitle">같은 원료를 다른 이름으로 적은 두 향수도 비슷한 향수로 판단해야 합니다. 노트마다 embedding을 만들고, 향수를 layer끼리 비교한 뒤, 실제로 향을 맡아 본 사람들의 투표와 맞춰 봅니다.</p>
     <div class="links">
       <a class="btn" href="https://github.com/junminkim1111/perfume-note-embeddings">Code</a>
       <a class="btn" href="https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes">Dataset</a>
-    </div>
     </div>
   </div>
 </header>
@@ -88,6 +72,11 @@
     </div>
 
     <p>이 프로젝트는 노트마다 sentence embedding 벡터를 만들어서, 이름이 달라도 향이 비슷한 노트끼리 가까이 놓이게 합니다. 향수는 layer별로 노트 벡터의 가중 평균으로 표현하고, 두 향수를 layer끼리 비교합니다.</p>
+
+    <figure>
+      <img src="figures/note_map.png" alt="향 계열별로 색을 칠한 전체 노트 embedding의 2차원 지도" loading="lazy">
+      <figcaption><b>노트 embedding 공간.</b> 점 하나가 노트 2,589개 중 하나이고, 색은 향 계열입니다. 이름만 다른 노트와 비슷한 원료가 서로 가까이 놓입니다.</figcaption>
+    </figure>
 
     <h3>최종 embedding 공간에서 가장 가까운 노트</h3>
     <div class="table"><table>

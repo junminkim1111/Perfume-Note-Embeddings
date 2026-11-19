@@ -12,26 +12,12 @@
   MathJax = { tex: { inlineMath: [["\\(", "\\)"]] }, svg: { fontCache: "global" } };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" defer></script>
-<script src="https://cdn.jsdelivr.net/npm/plotly.js-gl3d-dist-min@2.35.2/plotly-gl3d.min.js" defer></script>
-<script src="notemap.js" defer></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <header>
-  <div class="map">
-    <div id="notemap" role="img" aria-label="3D map of all 2,589 note embeddings"></div>
-    <div class="note-card" id="note-card" hidden>
-      <button class="nc-close" aria-label="Close">×</button>
-      <div class="nc-fam"></div>
-      <h3 class="nc-name"></h3>
-      <p class="nc-desc"></p>
-      <div class="nc-label"></div>
-      <ol class="nc-nn"></ol>
-    </div>
-    <p class="map-hint">Drag to rotate · click a note</p>
-  </div>
-  <div class="wrap hero">
+  <div class="wrap">
     <div class="headrow">
       <div class="kicker">Recommender · Sentence embeddings</div>
       <div class="lang">
@@ -39,13 +25,11 @@
         <a href="ko.html" lang="ko" onclick="this.href = 'ko.html' + location.hash">🇰🇷 KOR</a>
       </div>
     </div>
-    <div class="hero-text">
     <h1>Perfume Recommendation with Note Embeddings</h1>
     <p class="subtitle">Two perfumes that list the same materials under different names should still look alike. Embed every note, compare perfumes layer by layer, and check the result against what people who smelled them voted.</p>
     <div class="links">
       <a class="btn" href="https://github.com/junminkim1111/perfume-note-embeddings">Code</a>
       <a class="btn" href="https://www.kaggle.com/datasets/ledecanteur/fragrantica-perfumes">Dataset</a>
-    </div>
     </div>
   </div>
 </header>
@@ -88,6 +72,11 @@
     </div>
 
     <p>This project turns each note into a vector with a sentence-embedding model, so similar-smelling notes end up close together even when their names differ. A perfume is represented layer by layer as a weighted average of its note vectors, and perfumes are compared layer against layer.</p>
+
+    <figure>
+      <img src="figures/note_map.png" alt="2-D map of all note embeddings, colored by scent family" loading="lazy">
+      <figcaption><b>The note embedding space.</b> Each dot is one of the 2,589 notes, colored by scent family. Name variants and related materials land next to each other.</figcaption>
+    </figure>
 
     <h3>Nearest notes in the final embedding space</h3>
     <div class="table"><table>
