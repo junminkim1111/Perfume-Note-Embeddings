@@ -12,7 +12,7 @@
   MathJax = { tex: { inlineMath: [["\\(", "\\)"]] }, svg: { fontCache: "global" } };
 </script>
 <script src="https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-svg.js" defer></script>
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 
@@ -185,7 +185,7 @@
 <section id="tuning">
   <div class="wrap">
     <div class="kicker">Hyperparameter tuning</div>
-    <h2>Tune on train, choose on validation, <em>test once.</em></h2>
+    <h2>What to embed, how to weight, <em>how to compare.</em></h2>
 
     <p>For each query the model returns its top-100 list (query excluded). <b>The tuning objective is mean Recall@10 on the train split.</b> It counts every voted match equally, while nDCG is dominated by a few very popular perfumes whose matches have thousands of votes.</p>
     <div class="table"><table>
